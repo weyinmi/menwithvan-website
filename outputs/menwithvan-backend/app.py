@@ -668,29 +668,49 @@ Men With a Van
     return text_body, html_body
 
 
-def send_booking_confirmations(reference):
+def send_booking_confirmations(reference, force_customer=False, force_office=False):
+    result = {"customer": "skipped", "office": "skipped", "errors": []}
     if not email_enabled():
-        return
+        result["errors"].append("Email is not configured.")
+        return result
     with connect_db() as db:
         row = db.execute("SELECT * FROM bookings WHERE reference = ?", (reference,)).fetchone()
         if not row:
-            return
+            result["errors"].append("Booking not found.")
+            return result
         customer_sent = bool(row["confirmation_email_sent_at"])
         office_sent = bool(row["office_email_sent_at"])
         text_body, html_body = render_confirmation_email(row)
-        if not customer_sent:
+        if force_customer or not customer_sent:
             try:
                 if send_email(row["customer_email"], f"Men With a Van booking {reference}", text_body, html_body):
                     db.execute("UPDATE bookings SET confirmation_email_sent_at = ? WHERE reference = ?", (now_iso(), reference))
+                    result["customer"] = "sent"
+                else:
+                    result["customer"] = "not_sent"
             except Exception as error:
+                result["customer"] = "failed"
+                result["errors"].append(f"Customer email failed: {error}")
                 print(f"Customer confirmation email failed for {reference}: {error}")
-        if OFFICE_EMAIL and not office_sent:
+        else:
+            result["customer"] = "already_sent"
+        if OFFICE_EMAIL and (force_office or not office_sent):
             try:
                 office_text = "New paid booking received.\n\n" + text_body
                 if send_email(OFFICE_EMAIL, f"Paid booking {reference}", office_text, html_body):
                     db.execute("UPDATE bookings SET office_email_sent_at = ? WHERE reference = ?", (now_iso(), reference))
+                    result["office"] = "sent"
+                else:
+                    result["office"] = "not_sent"
             except Exception as error:
+                result["office"] = "failed"
+                result["errors"].append(f"Office email failed: {error}")
                 print(f"Office confirmation email failed for {reference}: {error}")
+        elif OFFICE_EMAIL and office_sent:
+            result["office"] = "already_sent"
+        elif not OFFICE_EMAIL:
+            result["office"] = "not_configured"
+    return result
 
 
 def handle_stripe_event(event):
@@ -1185,10 +1205,13 @@ def create_booking(payload):
     return result, None
 
 
-def render_admin():
+def render_admin(notice=""):
     with connect_db() as db:
         rows = db.execute("SELECT * FROM bookings ORDER BY id DESC LIMIT 200").fetchall()
 
+    email_state = "Ready" if email_enabled() else "Not configured"
+    email_state_class = "ok" if email_enabled() else "warn"
+    notice_html = f'<p class="notice">{html.escape(notice)}</p>' if notice else ""
     booking_rows = []
     for row in rows:
         reference = html.escape(row["reference"])
@@ -1215,6 +1238,9 @@ def render_admin():
                     for item in additional_addresses
                 )
             ) + "</small>"
+        customer_email_state = row["confirmation_email_sent_at"] or "Not sent"
+        office_email_state = row["office_email_sent_at"] or "Not sent"
+        email_badge_class = "ok" if row["confirmation_email_sent_at"] and row["office_email_sent_at"] else "warn"
         booking_rows.append(
             f"""
             <tr>
@@ -1229,6 +1255,13 @@ def render_admin():
                   <select name="payment_status">{''.join(f'<option value="{s}" {"selected" if s == row["payment_status"] else ""}>{s}</option>' for s in PAYMENT_STATUSES)}</select>
                   <button>Update</button>
                 </form>
+                <div class="email-status">
+                  <span class="badge {email_badge_class}">Email</span>
+                  <small>Customer: {html.escape(customer_email_state)}<br>Office: {html.escape(office_email_state)}</small>
+                  <form method="post" action="/admin/bookings/{reference}/email">
+                    <button type="submit">Send / resend email</button>
+                  </form>
+                </div>
               </td>
             </tr>
             """
@@ -1252,6 +1285,13 @@ def render_admin():
         button {{ color: #fff; background: #0b5d7a; cursor: pointer; }}
         .actions {{ margin-bottom: 18px; }}
         .actions a {{ color: #0b5d7a; font-weight: 700; }}
+        .notice {{ padding: 12px 14px; background: #fff9db; border: 1px solid #f0d878; border-radius: 8px; }}
+        .status-panel {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; padding: 14px; background: #fff; border: 1px solid #dce3eb; border-radius: 8px; }}
+        .status-panel form {{ margin: 0; }}
+        .badge {{ display: inline-flex; margin: 8px 0 4px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; }}
+        .badge.ok {{ color: #11623c; background: #daf5e8; }}
+        .badge.warn {{ color: #7a4f00; background: #fff0c2; }}
+        .email-status form {{ margin-top: 6px; }}
       </style>
     </head>
     <body>
@@ -1260,6 +1300,17 @@ def render_admin():
         <p>Bookings, payment status and move requests.</p>
       </header>
       <main>
+        {notice_html}
+        <section class="status-panel">
+          <div>
+            <strong>Email confirmations</strong><br>
+            <span class="badge {email_state_class}">{email_state}</span>
+            <small>Sender: {html.escape(SMTP_FROM or 'Not configured')} · Office copy: {html.escape(OFFICE_EMAIL or 'Not configured')}</small>
+          </div>
+          <form method="post" action="/admin/email/test">
+            <button type="submit">Send test email</button>
+          </form>
+        </section>
         <p class="actions"><a href="/admin/bookings.csv">Download CSV</a> · <a href="/">View website</a></p>
         <table>
           <thead><tr><th>Reference</th><th>Customer</th><th>Date</th><th>Move</th><th>Total</th><th>Status</th></tr></thead>
@@ -1281,7 +1332,8 @@ def bookings_csv():
         "pickup_postcode", "delivery_postcode", "luton_vans", "movers",
         "estimated_hours", "distance_miles", "total_inc_vat", "deposit_amount",
         "balance_amount", "additional_addresses", "stripe_checkout_session_id", "stripe_payment_intent_id",
-        "stripe_payment_amount", "stripe_payment_currency", "paid_at"
+        "stripe_payment_amount", "stripe_payment_currency", "paid_at",
+        "confirmation_email_sent_at", "office_email_sent_at"
     ]
     writer.writerow(columns)
     for row in rows:
@@ -1327,7 +1379,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/admin", "/admin/"):
             if not require_admin(self):
                 return
-            return html_response(self, 200, render_admin())
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            notice = compact((query.get("notice") or [""])[0], 240)
+            return html_response(self, 200, render_admin(notice))
         if path == "/admin/bookings.csv":
             if not require_admin(self):
                 return
@@ -1399,6 +1453,35 @@ class Handler(BaseHTTPRequestHandler):
                         (status, payment_status, status_match.group(1)),
                     )
             return redirect_response(self, "/admin")
+
+        email_match = re.match(r"^/admin/bookings/([^/]+)/email$", path)
+        if email_match:
+            if not require_admin(self):
+                return
+            reference = compact(urllib.parse.unquote(email_match.group(1)), 80)
+            result = send_booking_confirmations(reference, force_customer=True, force_office=True)
+            if result["errors"]:
+                notice = f"Email issue for {reference}: " + "; ".join(result["errors"])
+            else:
+                notice = f"Email sent for {reference}. Customer: {result['customer']}. Office: {result['office']}."
+            return redirect_response(self, "/admin?" + urllib.parse.urlencode({"notice": notice}))
+
+        if path == "/admin/email/test":
+            if not require_admin(self):
+                return
+            try:
+                if not OFFICE_EMAIL:
+                    raise RuntimeError("Office email is not configured.")
+                sent = send_email(
+                    OFFICE_EMAIL,
+                    "Men With a Van email test",
+                    "This is a test email from the Men With a Van booking system.",
+                    "<p>This is a test email from the Men With a Van booking system.</p>",
+                )
+                notice = "Test email sent to office address." if sent else "Email is not configured."
+            except Exception as error:
+                notice = f"Test email failed: {error}"
+            return redirect_response(self, "/admin?" + urllib.parse.urlencode({"notice": notice}))
 
         return json_response(self, 404, {"error": "Not found"})
 
