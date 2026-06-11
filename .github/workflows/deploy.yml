@@ -1,0 +1,61 @@
+name: Deploy Men With a Van
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: menwithvan-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy website and quote backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Validate backend syntax
+        run: python3 -m py_compile outputs/menwithvan-backend/app.py
+
+      - name: Build deployment package
+        run: |
+          set -euo pipefail
+          mkdir -p package/backend package/html
+          cp outputs/menwithvan-backend/app.py package/backend/app.py
+          cp -a outputs/menwithvan-demo/. package/html/
+          tar -C package -czf menwithvan-deploy.tgz backend html
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/menwithvan_deploy_key
+          chmod 600 ~/.ssh/menwithvan_deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" 'whoami'
+
+      - name: Upload package
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" 'cat > /tmp/menwithvan-deploy.tgz' < menwithvan-deploy.tgz
+
+      - name: Install on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" 'sudo -n /usr/local/sbin/menwithvan-deploy-from-tar /tmp/menwithvan-deploy.tgz'

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Payment Cancelled | Men With a Van</title>
+    <meta name="robots" content="noindex,nofollow">
+    <meta name="description" content="Cancelled payment page for a Men With a Van booking.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Men With a Van home"><span class="brand-mark">MWV</span><span><strong>Men With a Van</strong><small>London Luton van removals</small></span></a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="/#services">Services</a>
+        <a href="/#quote">Get quote</a>
+        <a href="reviews.html">Reviews</a>
+        <div class="nav-dropdown"><button type="button" aria-haspopup="true">More</button><div class="dropdown-menu"><a href="/#areas">Areas</a><a href="faq.html">FAQ</a><a href="blog.html">Moving advice</a><a href="terms-and-conditions.html">Terms</a></div></div>
+        <a href="/#prices">Prices</a>
+      </nav>
+      <a class="header-cta" href="/#quote">Get a quote</a>
+    </header>
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">Secure payment</p>
+        <h1>Payment was not completed.</h1>
+        <p>Your booking request may still be saved as payment pending. You can return to the quote form or contact the office to arrange payment.</p>
+      </section>
+      <section class="content-page">
+        <div class="quote-result error">
+          <strong>Checkout cancelled</strong>
+          <p id="cancel-reference">No card payment has been confirmed for this checkout.</p>
+        </div>
+        <p><a class="payment-link" href="/#quote">Return to quote form</a></p>
+      </section>
+    </main>
+    <footer class="site-footer"><div><strong>Men With a Van</strong><p>London Luton van removals for homes, offices, flats, furniture and storage moves.</p></div><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/#quote">Quote</a><a href="reviews.html">Reviews</a><a href="terms-and-conditions.html">Terms</a></nav></footer>
+    <script>
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      if (ref) {
+        document.querySelector("#cancel-reference").textContent = `Booking ${ref} is still marked as payment pending.`;
+      }
+    </script>
+  </body>
+</html>

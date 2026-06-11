@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Payment Received | Men With a Van</title>
+    <meta name="robots" content="noindex,nofollow">
+    <meta name="description" content="Payment confirmation for a Men With a Van booking.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Men With a Van home"><span class="brand-mark">MWV</span><span><strong>Men With a Van</strong><small>London Luton van removals</small></span></a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="/#services">Services</a>
+        <a href="/#quote">Get quote</a>
+        <a href="reviews.html">Reviews</a>
+        <div class="nav-dropdown"><button type="button" aria-haspopup="true">More</button><div class="dropdown-menu"><a href="/#areas">Areas</a><a href="faq.html">FAQ</a><a href="blog.html">Moving advice</a><a href="terms-and-conditions.html">Terms</a></div></div>
+        <a href="/#prices">Prices</a>
+      </nav>
+      <a class="header-cta" href="/#quote">Get a quote</a>
+    </header>
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">Secure payment</p>
+        <h1>Payment received.</h1>
+        <p>Your booking is confirmed for the selected date and arrival time. Stripe will email the official card payment receipt.</p>
+      </section>
+      <section class="content-page">
+        <div id="payment-status" class="quote-result success">
+          <strong>Checking payment status</strong>
+          <p>We are confirming the booking reference from Stripe.</p>
+        </div>
+        <p><a class="payment-link" href="/">Return to homepage</a></p>
+      </section>
+    </main>
+    <footer class="site-footer"><div><strong>Men With a Van</strong><p>London Luton van removals for homes, offices, flats, furniture and storage moves.</p></div><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/#quote">Quote</a><a href="reviews.html">Reviews</a><a href="terms-and-conditions.html">Terms</a></nav></footer>
+    <script>
+      const pounds = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
+      const statusBox = document.querySelector("#payment-status");
+      const sessionId = new URLSearchParams(window.location.search).get("session_id");
+
+      async function showPaymentStatus() {
+        if (!sessionId) {
+          statusBox.className = "quote-result error";
+          statusBox.innerHTML = "<strong>Payment reference missing</strong><p>If Stripe has taken payment, please contact the office with your Stripe receipt email.</p>";
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/payments/session?session_id=${encodeURIComponent(sessionId)}`);
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Payment session not found.");
+          const paidText = result.paidAt
+            ? "Stripe has confirmed the payment."
+            : "Stripe is still confirming the payment; this normally updates shortly.";
+          statusBox.className = "quote-result success";
+          const calendarLinks = result.calendar
+            ? `<p class="quote-distance">Add this confirmed move to your calendar.</p>
+              <p class="calendar-actions">
+                <a class="payment-link" href="${result.calendar.icsUrl}">Apple / Outlook / Android</a>
+                <a class="payment-link secondary-link" href="${result.calendar.googleUrl}" target="_blank" rel="noopener">Google Calendar</a>
+              </p>`
+            : "";
+          statusBox.innerHTML = `
+            <div class="quote-result-head">
+              <span>Booking reference</span>
+              <strong>${result.reference}</strong>
+            </div>
+            <p>${paidText}</p>
+            <dl class="quote-breakdown">
+              <div><dt>Payment status</dt><dd>${result.paymentStatus.replaceAll("_", " ")}</dd></div>
+              <div><dt>Total including VAT</dt><dd>${pounds.format(result.totalIncVat)}</dd></div>
+              <div><dt>Balance remaining</dt><dd>${pounds.format(result.balanceAmount)}</dd></div>
+            </dl>
+            ${calendarLinks}
+          `;
+        } catch (error) {
+          statusBox.className = "quote-result error";
+          statusBox.innerHTML = "<strong>Payment saved</strong><p>We could not load the booking reference here, but Stripe will still email a payment receipt if payment completed.</p>";
+        }
+      }
+
+      showPaymentStatus();
+    </script>
+  </body>
+</html>

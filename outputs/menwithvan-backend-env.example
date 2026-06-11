@@ -1,0 +1,36 @@
+# Men With a Van backend environment template
+# Do not put real secrets in source control.
+
+NODE_ENV=production
+PORT=3000
+PUBLIC_SITE_URL=https://www.menwithvan.com
+BOOKING_DB_PATH=/var/lib/menwithvan/bookings.sqlite3
+ADMIN_USER=admin
+ADMIN_PASSWORD=replace-with-long-random-password
+
+# Store real keys only on the VPS or deployment secret manager.
+GOOGLE_PLACES_API_KEY=replace-with-server-or-browser-restricted-places-key
+GOOGLE_DISTANCE_MATRIX_API_KEY=replace-with-server-restricted-distance-key
+GOOGLE_GEOCODING_API_KEY=replace-with-server-restricted-geocoding-key
+
+# Recommended defaults, editable later in the admin dashboard.
+VAT_RATE=0.20
+MINIMUM_BOOKING_HOURS=2
+MILEAGE_RATE_EX_VAT=2.00
+STAIR_RATE_PER_FLOOR_PER_MAN_EX_VAT=15.00
+CONGESTION_FEE_EX_VAT=27.00
+MAX_BOOKABLE_LUTON_VANS=5
+
+# Payments, added when Stripe is connected.
+SITE_BASE_URL=https://www.menwithvan.com
+STRIPE_SECRET_KEY=sk_test_replace_with_restricted_or_standard_secret_key
+STRIPE_WEBHOOK_SECRET=whsec_replace_with_webhook_signing_secret
+STRIPE_API_VERSION=2026-02-25.clover
+
+# Optional booking confirmation emails after paid Stripe webhook.
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=bookings@menwithvan.com
+SMTP_PASSWORD=replace-with-email-password
+SMTP_FROM=Men With a Van <bookings@menwithvan.com>
+OFFICE_EMAIL=bookings@menwithvan.com
