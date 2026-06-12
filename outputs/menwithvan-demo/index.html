@@ -174,20 +174,47 @@
                   <option>Furniture delivery</option>
                 </select>
               </label>
-              <label>
-                Number of Luton vans
-                <select name="luton-vans" autocomplete="off">
-                  <option>1 Luton van - 1 vehicle</option>
-                  <option>2 Luton vans - 2 vehicles</option>
-                  <option>3 Luton vans - 3 vehicles</option>
-                  <option>4 Luton vans - 4 vehicles</option>
-                  <option>5 Luton vans - 5 vehicles</option>
+              <label class="van-selector-field">
+                <span>Number of Luton vans</span>
+                <select class="native-van-select" name="luton-vans" autocomplete="off" tabindex="-1" aria-hidden="true">
+                  <option value="1 Luton van">1 Luton van</option>
+                  <option value="2 Luton vans">2 Luton vans</option>
+                  <option value="3 Luton vans">3 Luton vans</option>
+                  <option value="4 Luton vans">4 Luton vans</option>
+                  <option value="5 Luton vans">5 Luton vans</option>
                 </select>
+                <div class="van-dropdown" data-van-dropdown>
+                  <button class="van-dropdown-button" type="button" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="van-option-text">1 Luton van</span>
+                    <span class="van-icons" aria-hidden="true">
+                      <span class="van-mini"></span>
+                    </span>
+                  </button>
+                  <div class="van-dropdown-menu" role="listbox" hidden>
+                    <button type="button" role="option" aria-selected="true" data-value="1 Luton van">
+                      <span class="van-option-text">1 Luton van</span>
+                      <span class="van-icons" aria-hidden="true"><span class="van-mini"></span></span>
+                    </button>
+                    <button type="button" role="option" aria-selected="false" data-value="2 Luton vans">
+                      <span class="van-option-text">2 Luton vans</span>
+                      <span class="van-icons" aria-hidden="true"><span class="van-mini"></span><span class="van-mini"></span></span>
+                    </button>
+                    <button type="button" role="option" aria-selected="false" data-value="3 Luton vans">
+                      <span class="van-option-text">3 Luton vans</span>
+                      <span class="van-icons" aria-hidden="true"><span class="van-mini"></span><span class="van-mini"></span><span class="van-mini"></span></span>
+                    </button>
+                    <button type="button" role="option" aria-selected="false" data-value="4 Luton vans">
+                      <span class="van-option-text">4 Luton vans</span>
+                      <span class="van-icons" aria-hidden="true"><span class="van-mini"></span><span class="van-mini"></span><span class="van-mini"></span><span class="van-mini"></span></span>
+                    </button>
+                    <button type="button" role="option" aria-selected="false" data-value="5 Luton vans">
+                      <span class="van-option-text">5 Luton vans</span>
+                      <span class="van-icons" aria-hidden="true"><span class="van-mini"></span><span class="van-mini"></span><span class="van-mini"></span><span class="van-mini"></span><span class="van-mini"></span></span>
+                    </button>
+                  </div>
+                </div>
                 <small>All vans are the same Luton size. This selects how many vehicles arrive.</small>
               </label>
-              <div class="van-count-visual" id="van-count-visual" aria-live="polite">
-                <span class="van-pill">Luton van 1</span>
-              </div>
               <label>
                 Movers
                 <select name="movers" autocomplete="off">

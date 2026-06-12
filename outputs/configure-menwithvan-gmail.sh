@@ -104,5 +104,44 @@ print("smtp_password_present", "SMTP_PASSWORD=" in text and "replace-with" not i
 print("office_email_configured", "OFFICE_EMAIL=menwithvan4@gmail.com" in text)
 PY
 
+set -a
+. /etc/menwithvan/quote.env
+set +a
+
+python3 - <<'PY'
+import os
+import smtplib
+import ssl
+from email.message import EmailMessage
+
+host = os.environ.get("SMTP_HOST", "")
+port = int(os.environ.get("SMTP_PORT", "587"))
+user = os.environ.get("SMTP_USER", "")
+password = os.environ.get("SMTP_PASSWORD", "")
+sender = os.environ.get("SMTP_FROM") or user
+recipient = os.environ.get("OFFICE_EMAIL") or user
+
+message = EmailMessage()
+message["From"] = sender
+message["To"] = recipient
+message["Subject"] = "Men With a Van Gmail SMTP test"
+message.set_content("Gmail SMTP is working for the Men With a Van booking system.")
+
+try:
+    with smtplib.SMTP(host, port, timeout=20) as smtp:
+        smtp.starttls(context=ssl.create_default_context())
+        smtp.login(user, password)
+        smtp.send_message(message)
+    print("gmail_smtp_test_sent True")
+except smtplib.SMTPAuthenticationError as error:
+    print("gmail_smtp_test_sent False")
+    print("gmail_smtp_error Authentication failed. Create a new Google app password and run this setup again.")
+    raise SystemExit(1) from error
+except Exception as error:
+    print("gmail_smtp_test_sent False")
+    print(f"gmail_smtp_error {error}")
+    raise SystemExit(1) from error
+PY
+
 echo "Gmail SMTP settings installed."
 REMOTE
