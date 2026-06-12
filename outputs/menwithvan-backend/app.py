@@ -34,6 +34,7 @@ STAIR_RATE = float(os.environ.get("STAIR_RATE_PER_FLOOR_PER_MAN_EX_VAT", "15.00"
 CONGESTION_FEE = float(os.environ.get("CONGESTION_FEE_EX_VAT", "27.00"))
 MAX_VANS = int(os.environ.get("MAX_BOOKABLE_LUTON_VANS", "5"))
 MAX_ADDITIONAL_STOPS = int(os.environ.get("MAX_ADDITIONAL_STOPS", "5"))
+PACKING_SERVICE_MULTIPLIER = float(os.environ.get("PACKING_SERVICE_MULTIPLIER", "0.40"))
 GOOGLE_KEY = os.environ.get("GOOGLE_DISTANCE_MATRIX_API_KEY") or os.environ.get("GOOGLE_MAPS_API_KEY")
 GOOGLE_GEOCODING_KEY = os.environ.get("GOOGLE_GEOCODING_API_KEY") or GOOGLE_KEY
 SITE_BASE_URL = os.environ.get("SITE_BASE_URL", "https://www.menwithvan.com").rstrip("/")
@@ -94,6 +95,10 @@ def first_int(value, default=0):
         return int(value)
     match = re.search(r"\d+", str(value or ""))
     return int(match.group(0)) if match else default
+
+
+def truthy(value):
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def clean_postcode(value):
@@ -322,9 +327,10 @@ def create_stripe_checkout_session(reference, customer_email, payment_option, qu
         f"{quote['inputs']['movers']} mover(s), "
         f"{quote['inputs']['hours']:g} hour(s)"
     )
+    packing_text = " Pack and move service included." if quote.get("inputs", {}).get("packAndMove") else ""
     description = (
         f"{move_summary}. Booked for {move_date} at {move_time}. "
-        f"VAT included. Overtime after booked hours: £{overtime.get('hourlyRateIncVat', 0):g}/hour inc VAT."
+        f"VAT included.{packing_text} Overtime after booked hours: £{overtime.get('hourlyRateIncVat', 0):g}/hour inc VAT."
     )
     params = {
         "mode": "payment",
@@ -434,14 +440,18 @@ def booking_calendar_summary(row):
 
 def booking_calendar_description(row):
     overtime_rate = row["total_inc_vat"]
+    packing_line = "Packing service: Not included."
     try:
         quote = json.loads(row["quote_json"] or "{}")
         overtime_rate = quote.get("overtime", {}).get("hourlyRateIncVat", overtime_rate)
+        if quote.get("inputs", {}).get("packAndMove"):
+            packing_line = "Packing service: Pack and move included with standard packing materials."
     except Exception:
         pass
     return (
         f"Booking reference: {row['reference']}\n"
         f"{row['luton_vans']} Luton van(s), {row['movers']} mover(s), {row['estimated_hours']:g} booked hour(s).\n"
+        f"{packing_line}\n"
         f"Total including VAT: £{row['total_inc_vat']:.2f}.\n"
         f"Overtime after booked hours: £{float(overtime_rate):.2f} per extra hour or part-hour, payable on completion.\n"
         f"Pickup: {row['pickup_address']}\n"
@@ -587,6 +597,12 @@ def render_confirmation_email(row):
     ) or "None"
     payment_text = payment_wording(row)
     overtime_rate = quote.get("overtime", {}).get("hourlyRateIncVat", 0)
+    pack_and_move = bool(quote.get("inputs", {}).get("packAndMove"))
+    packing_text = (
+        "Included - standard packing materials, packing of loose household items and the move are included within the booked hours."
+        if pack_and_move
+        else "Not included - move only."
+    )
     ics_url = f"{SITE_BASE_URL}/api/bookings/{row['reference']}/calendar.ics?token={row['calendar_token']}"
     google_url = google_calendar_url(row)
 
@@ -606,6 +622,7 @@ Move summary:
 - {row['movers']} mover(s)
 - {row['estimated_hours']:g} estimated hour(s)
 - Route distance: {row['distance_miles']:g} miles
+- Packing service: {packing_text}
 
 Quote breakdown:
 {item_lines}
@@ -649,6 +666,7 @@ Men With a Van
   <p><strong>Delivery:</strong> {html.escape(row['delivery_address'] or '')}</p>
   <p><strong>Additional stops:</strong></p><ul>{html_extra}</ul>
   <p><strong>Team:</strong> {row['luton_vans']} Luton van(s), {row['movers']} mover(s), {row['estimated_hours']:g} estimated hour(s)</p>
+  <p><strong>Packing service:</strong> {html.escape(packing_text)}</p>
   <h2>Price</h2>
   <table cellpadding="8" cellspacing="0" border="1" style="border-collapse:collapse;border-color:#dce3eb">{html_rows}
     <tr><td>VAT</td><td>£{row['vat']:.2f}</td></tr>
@@ -939,6 +957,7 @@ def build_quote(payload):
     pickup = clean_postcode(payload.get("pickup") or payload.get("pickupPostcode"))
     delivery = clean_postcode(payload.get("delivery") or payload.get("deliveryPostcode"))
     additional_stops = clean_postcode_list(payload.get("additionalStops") or payload.get("additional-stops") or [])
+    pack_and_move = truthy(payload.get("packAndMove") or payload.get("pack-and-move") or payload.get("packingService"))
 
     errors = []
     if vans < 1 or vans > MAX_VANS:
@@ -964,6 +983,9 @@ def build_quote(payload):
 
     hourly_rate, pricing_status = hourly_rate_for(vans, movers)
     hourly_subtotal = hourly_rate * hours
+    packing_service_rate = hourly_rate * PACKING_SERVICE_MULTIPLIER
+    packing_subtotal = packing_service_rate * hours if pack_and_move else 0
+    selected_hourly_rate = hourly_rate + (packing_service_rate if pack_and_move else 0)
     mileage_subtotal = distance_miles * MILEAGE_RATE
     stairs_flights = pickup_stairs + delivery_stairs
     stairs_subtotal = stairs_flights * movers * STAIR_RATE
@@ -977,51 +999,26 @@ def build_quote(payload):
         "note": "Postcode/address hints are prefilled for convenience only. Customers must add door number, flat, building name and any missing access details before booking.",
     }
 
-    subtotal = hourly_subtotal + mileage_subtotal + stairs_subtotal + congestion_subtotal
+    subtotal = hourly_subtotal + packing_subtotal + mileage_subtotal + stairs_subtotal + congestion_subtotal
     vat = subtotal * VAT_RATE
     total = subtotal + vat
     deposit = total * 0.25
-
-    quote = {
-        "quoteId": f"MWV-{int(time.time())}",
-        "pricingStatus": pricing_status,
-        "currency": "GBP",
-        "inputs": {
-            "pickup": pickup,
-            "delivery": delivery,
-            "additionalStops": additional_stops,
-            "lutonVans": vans,
-            "movers": movers,
-            "hours": hours,
-            "pickupStairs": pickup_stairs,
-            "deliveryStairs": delivery_stairs,
+    line_items = [
+        {
+            "label": f"{vans} Luton van{'s' if vans != 1 else ''}, {movers} mover{'s' if movers != 1 else ''}, {hours:g} hour{'s' if hours != 1 else ''}",
+            "amountExVat": money(hourly_subtotal),
         },
-        "rates": {
-            "hourlyRateExVat": money(hourly_rate),
-            "hourlyRateIncVat": money(hourly_rate * (1 + VAT_RATE)),
-            "mileageRateExVat": money(MILEAGE_RATE),
-            "stairRatePerFloorPerManExVat": money(STAIR_RATE),
-            "congestionFeeExVat": money(CONGESTION_FEE),
-            "vatRate": VAT_RATE,
-            "minimumHours": MINIMUM_HOURS,
-        },
-        "distance": {
-            "miles": distance_miles,
-            "roundedBillableMiles": math.ceil(distance_miles),
-            "legs": route_legs,
-        },
-        "congestionZone": congestion_details,
-        "addressHints": address_hints,
-        "overtime": {
-            "hourlyRateExVat": money(hourly_rate),
-            "hourlyRateIncVat": money(hourly_rate * (1 + VAT_RATE)),
-            "note": "Overtime after the booked hours is charged at the same selected vans/men hourly rate, per extra hour or part-hour, and is payable to the driver on completion.",
-        },
-        "lineItems": [
+    ]
+    if pack_and_move:
+        line_items.append(
             {
-                "label": f"{vans} Luton van{'s' if vans != 1 else ''}, {movers} mover{'s' if movers != 1 else ''}, {hours:g} hour{'s' if hours != 1 else ''}",
-                "amountExVat": money(hourly_subtotal),
-            },
+                "label": f"Pack and move service ({int(PACKING_SERVICE_MULTIPLIER * 100)}% uplift for {hours:g} booked hour{'s' if hours != 1 else ''})",
+                "amountExVat": money(packing_subtotal),
+                "note": "Includes standard packing materials and packing of loose household items within the booked hours.",
+            }
+        )
+    line_items.extend(
+        [
             {
                 "label": f"Route mileage ({distance_miles:g} miles across {len(route_legs)} leg{'s' if len(route_legs) != 1 else ''} at £{MILEAGE_RATE:g}/mile)",
                 "amountExVat": money(mileage_subtotal),
@@ -1036,7 +1033,51 @@ def build_quote(payload):
                 "applied": congestion_applied,
                 "note": congestion_details["note"],
             },
-        ],
+        ]
+    )
+
+    quote = {
+        "quoteId": f"MWV-{int(time.time())}",
+        "pricingStatus": pricing_status,
+        "currency": "GBP",
+        "inputs": {
+            "pickup": pickup,
+            "delivery": delivery,
+            "additionalStops": additional_stops,
+            "lutonVans": vans,
+            "movers": movers,
+            "hours": hours,
+            "packAndMove": pack_and_move,
+            "pickupStairs": pickup_stairs,
+            "deliveryStairs": delivery_stairs,
+        },
+        "rates": {
+            "hourlyRateExVat": money(hourly_rate),
+            "hourlyRateIncVat": money(hourly_rate * (1 + VAT_RATE)),
+            "packingServiceMultiplier": PACKING_SERVICE_MULTIPLIER,
+            "packingServiceRateExVat": money(packing_service_rate),
+            "packingServiceRateIncVat": money(packing_service_rate * (1 + VAT_RATE)),
+            "selectedJobHourlyRateExVat": money(selected_hourly_rate),
+            "selectedJobHourlyRateIncVat": money(selected_hourly_rate * (1 + VAT_RATE)),
+            "mileageRateExVat": money(MILEAGE_RATE),
+            "stairRatePerFloorPerManExVat": money(STAIR_RATE),
+            "congestionFeeExVat": money(CONGESTION_FEE),
+            "vatRate": VAT_RATE,
+            "minimumHours": MINIMUM_HOURS,
+        },
+        "distance": {
+            "miles": distance_miles,
+            "roundedBillableMiles": math.ceil(distance_miles),
+            "legs": route_legs,
+        },
+        "congestionZone": congestion_details,
+        "addressHints": address_hints,
+        "overtime": {
+            "hourlyRateExVat": money(selected_hourly_rate),
+            "hourlyRateIncVat": money(selected_hourly_rate * (1 + VAT_RATE)),
+            "note": "Overtime after the booked hours is charged at the selected job hourly rate, per extra hour or part-hour, and is payable to the driver on completion.",
+        },
+        "lineItems": line_items,
         "totals": {
             "subtotalExVat": money(subtotal),
             "vat": money(vat),
@@ -1047,10 +1088,14 @@ def build_quote(payload):
         "messages": [
             "Minimum booking is two hours.",
             "Once online payment is completed, the selected date and arrival time are booked.",
-            f"Overtime after the booked time is £{money(hourly_rate * (1 + VAT_RATE)):.2f} per extra hour or part-hour, payable on completion.",
+            f"Overtime after the booked time is £{money(selected_hourly_rate * (1 + VAT_RATE)):.2f} per extra hour or part-hour, payable on completion.",
         ],
     }
 
+    if pack_and_move:
+        quote["messages"].append(
+            "Pack and move selected: standard packing materials and packing of loose household items are included within the booked hours."
+        )
     if not congestion_details["checked"]:
         quote["messages"].append("Congestion zone could not be checked automatically; the office will review it.")
     if additional_stops:

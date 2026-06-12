@@ -469,12 +469,97 @@ textarea:focus {
   gap: 14px;
 }
 
+.quote-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.quote-actions[hidden],
+.booking-panel[hidden],
+.time-field[hidden] {
+  display: none;
+}
+
+.quote-actions button,
+.booking-panel button[type="submit"] {
+  min-height: 48px;
+  padding: 0 18px;
+  color: #fff;
+  font-weight: 900;
+  background: var(--brand);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.quote-actions p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .booking-date-time small {
   display: block;
   margin-top: 8px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.date-picker-card {
+  display: grid;
+  gap: 8px;
+}
+
+.time-field {
+  margin-top: 14px;
+}
+
+.time-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.time-slot {
+  display: block;
+}
+
+.time-slot input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.time-slot span {
+  display: block;
+  min-height: 40px;
+  padding: 10px 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+  text-align: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.time-slot input:focus-visible + span {
+  outline: 3px solid rgba(11, 93, 122, 0.22);
+  outline-offset: 2px;
+}
+
+.time-slot input:checked + span {
+  color: #fff;
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.time-slot input:disabled + span {
+  color: var(--muted);
+  background: #f5f8fa;
+  cursor: not-allowed;
 }
 
 .inline-action,
@@ -1139,6 +1224,10 @@ textarea:focus {
 
   .date-time-grid {
     grid-template-columns: 1fr;
+  }
+
+  .time-slot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .metric-band {

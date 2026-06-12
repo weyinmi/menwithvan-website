@@ -42,7 +42,7 @@ function additionalAddressHint(quote, index, fallback = "") {
   return hint?.formatted || fallback || "";
 }
 
-function preferredTimeOptions() {
+function preferredTimeSlots() {
   const slots = [];
   for (let hour = 8; hour <= 10; hour += 1) {
     slots.push(`${String(hour).padStart(2, "0")}:00`);
@@ -53,24 +53,46 @@ function preferredTimeOptions() {
     if (hour < 21) slots.push(`${String(hour).padStart(2, "0")}:30`);
   }
 
-  return slots
-    .map((slot) => {
-      const [hourText, minute] = slot.split(":");
-      const hour = Number(hourText);
-      const period = hour >= 12 ? "pm" : "am";
-      const displayHour = hour > 12 ? hour - 12 : hour;
-      return `<option value="${slot}">${displayHour}:${minute} ${period}</option>`;
-    })
+  return slots;
+}
+
+function formatTimeSlot(slot) {
+  const [hourText, minute] = slot.split(":");
+  const hour = Number(hourText);
+  const period = hour >= 12 ? "pm" : "am";
+  const displayHour = hour > 12 ? hour - 12 : hour;
+  return `${displayHour}:${minute} ${period}`;
+}
+
+function preferredTimeRadios() {
+  return preferredTimeSlots()
+    .map(
+      (slot) => `
+        <label class="time-slot">
+          <input type="radio" name="move-time" value="${slot}" required disabled>
+          <span>${formatTimeSlot(slot)}</span>
+        </label>
+      `
+    )
     .join("");
 }
 
-function showQuoteMessage(type, title, message) {
+function revealQuoteResult() {
   quoteResult.hidden = false;
+  quoteResult.setAttribute("tabindex", "-1");
+  window.requestAnimationFrame(() => {
+    quoteResult.scrollIntoView({ behavior: "smooth", block: "start" });
+    quoteResult.focus({ preventScroll: true });
+  });
+}
+
+function showQuoteMessage(type, title, message) {
   quoteResult.className = `quote-result ${type}`;
   quoteResult.innerHTML = `
     <strong>${title}</strong>
     <p>${message}</p>
   `;
+  revealQuoteResult();
 }
 
 function addAdditionalStop(value = "") {
@@ -107,7 +129,6 @@ function renderQuote(quote, payload) {
   lastQuote = quote;
   lastQuotePayload = payload;
 
-  quoteResult.hidden = false;
   quoteResult.className = "quote-result success";
   quoteResult.innerHTML = `
     <div class="quote-result-head">
@@ -150,7 +171,11 @@ function renderQuote(quote, payload) {
     <ul>
       ${quote.messages.map((message) => `<li>${message}</li>`).join("")}
     </ul>
-    <form class="booking-panel">
+    <div class="quote-actions">
+      <button type="button" class="show-booking-form">Continue to booking details</button>
+      <p>Next step: full addresses, moving date, arrival time and payment choice.</p>
+    </div>
+    <form class="booking-panel" hidden>
       <h3>Book this move</h3>
       <p>Confirm the move details, then continue to secure Stripe checkout. Once payment is completed, your selected date and arrival time are confirmed.</p>
       <div class="form-grid">
@@ -167,21 +192,18 @@ function renderQuote(quote, payload) {
           <input name="customer-phone" autocomplete="tel" required>
         </label>
         <div class="booking-date-time full">
-          <div class="field-label">Preferred moving date and arrival time</div>
-          <div class="date-time-grid">
-            <label>
-              Moving date
-              <input type="date" name="move-date" required>
-            </label>
-            <label>
-              Arrival time
-              <select name="move-time" required>
-                <option value="">Select a time</option>
-                ${preferredTimeOptions()}
-              </select>
-            </label>
+          <div class="field-label">Preferred moving date</div>
+          <label class="date-picker-card">
+            Moving date
+            <input type="date" name="move-date" required>
+          </label>
+          <div class="time-field" data-time-field hidden>
+            <div class="field-label">Available arrival times</div>
+            <div class="time-slot-grid" role="radiogroup" aria-label="Arrival time">
+              ${preferredTimeRadios()}
+            </div>
           </div>
-          <small>Available starts are 8:00am-10:00am, then 1:00pm-9:00pm in 30-minute intervals.</small>
+          <small>Choose a date first, then select a start time. Available starts are 8:00am-10:00am, then 1:00pm-9:00pm in 30-minute intervals.</small>
         </div>
         <p class="address-hint-note full">We have prefilled the address boxes from the postcode where possible. Please complete the door number, flat, building name and any missing details before payment.</p>
         <label class="full">
@@ -215,6 +237,7 @@ function renderQuote(quote, payload) {
       <button type="submit">Continue to secure payment</button>
     </form>
   `;
+  revealQuoteResult();
 }
 
 function renderPaymentRedirect(result) {
@@ -290,7 +313,7 @@ if (quoteForm && quoteResult) {
     moversSelect.value = `${nextValue} ${nextValue === 1 ? "man" : "men"}`;
 
     if (moverCapacityNote) {
-      moverCapacityNote.textContent = `${vans} vehicle${vans === 1 ? "" : "s"} allows ${minMovers}-${maxMovers} men.`;
+      moverCapacityNote.textContent = `${vans} Luton van${vans === 1 ? "" : "s"} allows ${minMovers}-${maxMovers} men in total. These are the movers arriving to load, carry and move your items.`;
     }
   };
 
@@ -313,6 +336,7 @@ if (quoteForm && quoteResult) {
       lutonVans: firstNumber(data.get("luton-vans")),
       movers: firstNumber(data.get("movers")),
       hours: firstNumber(data.get("estimated-hours")),
+      packAndMove: data.get("pack-and-move") === "yes",
       pickup: data.get("pickup"),
       delivery: data.get("delivery"),
       additionalStops,
@@ -326,7 +350,7 @@ if (quoteForm && quoteResult) {
       return;
     }
 
-    showQuoteMessage("loading", "Calculating quote", "Checking route distance, vans, movers, stairs and VAT.");
+    showQuoteMessage("loading", "Calculating quote", "Checking route distance, vans, movers, packing option, stairs and VAT.");
 
     try {
       const response = await fetch("/api/quote", {
@@ -344,6 +368,43 @@ if (quoteForm && quoteResult) {
       renderQuote(result, payload);
     } catch (error) {
       showQuoteMessage("error", "Quote service unavailable", "The calculator could not be reached. Please try again or contact the office.");
+    }
+  });
+
+  quoteResult.addEventListener("click", (event) => {
+    if (!event.target.matches(".show-booking-form")) return;
+
+    const bookingPanel = quoteResult.querySelector(".booking-panel");
+    const actions = event.target.closest(".quote-actions");
+    if (!bookingPanel) return;
+
+    if (actions) actions.hidden = true;
+    bookingPanel.hidden = false;
+
+    window.requestAnimationFrame(() => {
+      bookingPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      bookingPanel.querySelector("input, select, textarea, button")?.focus({ preventScroll: true });
+    });
+  });
+
+  quoteResult.addEventListener("change", (event) => {
+    if (!event.target.matches('input[name="move-date"]')) return;
+
+    const bookingPanel = event.target.closest(".booking-panel");
+    const timeField = bookingPanel?.querySelector("[data-time-field]");
+    const timeInputs = bookingPanel?.querySelectorAll('input[name="move-time"]') || [];
+    const hasDate = Boolean(event.target.value);
+
+    if (timeField) timeField.hidden = !hasDate;
+    timeInputs.forEach((input) => {
+      input.disabled = !hasDate;
+      if (!hasDate) input.checked = false;
+    });
+
+    if (hasDate && timeField) {
+      window.requestAnimationFrame(() => {
+        timeField.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
     }
   });
 

@@ -16,7 +16,7 @@
     <meta name="theme-color" content="#0b5d7a">
     <link rel="preload" as="image" href="assets/hero-luton-removals.webp" type="image/webp">
     <link rel="stylesheet" href="styles.css">
-    <script src="quote.js?v=20260611-confirmed-booking" defer></script>
+    <script src="quote.js?v=20260613-pack-move-flow" defer></script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -186,16 +186,16 @@
                 <small>All vehicles are 3.5 tonne Luton vans. Choose how many vans arrive.</small>
               </label>
               <label>
-                Movers
+                Men / movers needed
                 <select name="movers" autocomplete="off">
                   <option>1 man</option>
                   <option>2 men</option>
                   <option>3 men</option>
                 </select>
-                <small id="mover-capacity-note">1 vehicle allows 1-3 men.</small>
+                <small id="mover-capacity-note">Total men arriving to load, carry and move your items. 1 vehicle allows 1-3 men.</small>
               </label>
               <label>
-                Estimated hours
+                Estimated total hours
                 <select name="estimated-hours" autocomplete="off">
                   <option>2 hours</option>
                   <option>3 hours</option>
@@ -204,7 +204,20 @@
                   <option>6 hours</option>
                   <option>7 hours</option>
                   <option>8 hours</option>
+                  <option>9 hours</option>
+                  <option>10 hours</option>
+                  <option>11 hours</option>
+                  <option>12 hours</option>
                 </select>
+                <small>Choose the total booked time. For pack and move, include packing and moving time.</small>
+              </label>
+              <label class="full">
+                Packing service
+                <select name="pack-and-move" autocomplete="off">
+                  <option value="no">No - move only</option>
+                  <option value="yes">Yes - pack and move</option>
+                </select>
+                <small>Pack and move means we bring standard packing materials, box loose items, then move everything within the booked hours.</small>
               </label>
               <label>
                 Pickup postcode or area
