@@ -353,7 +353,7 @@ h3 {
 }
 
 .quote-panel {
-  padding: 26px;
+  padding: 24px;
   color: var(--ink);
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -362,14 +362,15 @@ h3 {
 }
 
 .quote-panel h2 {
-  margin-bottom: 22px;
-  font-size: 30px;
+  margin-bottom: 18px;
+  font-size: 27px;
+  line-height: 1.08;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 label {
@@ -380,11 +381,11 @@ label {
 
 label small {
   display: block;
-  margin-top: 7px;
+  margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 label.full {
@@ -430,9 +431,10 @@ textarea:focus {
 }
 
 .form-note {
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .field-label {
@@ -459,130 +461,6 @@ textarea:focus {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-}
-
-.van-selector-field {
-  position: relative;
-}
-
-.native-van-select {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: 0;
-  padding: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.van-dropdown {
-  position: relative;
-  margin-top: 7px;
-}
-
-.quote-panel .van-dropdown-button,
-.quote-panel .van-dropdown-menu button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  min-height: 48px;
-  margin: 0;
-  padding: 8px 12px;
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 800;
-  text-align: left;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.quote-panel .van-dropdown-button {
-  cursor: pointer;
-}
-
-.quote-panel .van-dropdown-button::after {
-  content: "";
-  width: 9px;
-  height: 9px;
-  border-right: 2px solid #64748b;
-  border-bottom: 2px solid #64748b;
-  transform: rotate(45deg) translateY(-2px);
-}
-
-.quote-panel .van-dropdown-button:focus-visible {
-  border-color: var(--brand);
-  box-shadow: 0 0 0 4px rgba(11, 93, 122, 0.12);
-}
-
-.van-dropdown-menu {
-  position: absolute;
-  z-index: 20;
-  right: 0;
-  left: 0;
-  top: calc(100% + 6px);
-  display: grid;
-  gap: 4px;
-  padding: 6px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 18px 40px rgba(15, 45, 58, 0.18);
-}
-
-.quote-panel .van-dropdown-menu button {
-  border-color: transparent;
-  cursor: pointer;
-}
-
-.quote-panel .van-dropdown-menu button:hover,
-.quote-panel .van-dropdown-menu button[aria-selected="true"] {
-  background: #eef7fa;
-}
-
-.van-icons {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-  min-width: max-content;
-}
-
-.van-mini {
-  position: relative;
-  flex: 0 0 auto;
-  width: 19px;
-  height: 12px;
-  background: linear-gradient(90deg, #f8fafc 0 68%, #d8edf3 68% 100%);
-  border: 2px solid #0b5d7a;
-  border-radius: 3px 5px 3px 3px;
-  box-shadow: inset 7px 0 0 #fff, inset 12px 0 0 #f1f5f9;
-}
-
-.van-mini::before,
-.van-mini::after {
-  content: "";
-  position: absolute;
-  bottom: -5px;
-  width: 6px;
-  height: 6px;
-  background: #0f2d3a;
-  border-radius: 50%;
-}
-
-.van-mini::before {
-  left: 3px;
-}
-
-.van-mini::after {
-  right: 3px;
-}
-
-.van-option-text {
-  min-width: 0;
-  white-space: nowrap;
 }
 
 .date-time-grid {

@@ -3,7 +3,6 @@ const quoteResult = document.querySelector("#quote-result");
 const vansSelect = quoteForm?.querySelector('select[name="luton-vans"]');
 const moversSelect = quoteForm?.querySelector('select[name="movers"]');
 const moverCapacityNote = quoteForm?.querySelector("#mover-capacity-note");
-const vanDropdown = quoteForm?.querySelector("[data-van-dropdown]");
 const additionalStopList = quoteForm?.querySelector("#additional-stop-list");
 const addStopButton = quoteForm?.querySelector("#add-stop");
 
@@ -271,32 +270,6 @@ function renderBookingConfirmation(result) {
 if (quoteForm && quoteResult) {
   quoteResult.hidden = true;
 
-  const syncVanDropdown = () => {
-    if (!vanDropdown || !vansSelect) return;
-
-    const value = vansSelect.value;
-    const selectedOption = Array.from(vanDropdown.querySelectorAll("[data-value]")).find((option) => option.dataset.value === value);
-    const button = vanDropdown.querySelector(".van-dropdown-button");
-    const menu = vanDropdown.querySelector(".van-dropdown-menu");
-
-    vanDropdown.querySelectorAll("[role='option']").forEach((option) => {
-      option.setAttribute("aria-selected", String(option === selectedOption));
-    });
-
-    if (button && selectedOption) {
-      button.innerHTML = selectedOption.innerHTML;
-      button.setAttribute("aria-expanded", String(menu && !menu.hidden));
-    }
-  };
-
-  const closeVanDropdown = () => {
-    if (!vanDropdown) return;
-    const button = vanDropdown.querySelector(".van-dropdown-button");
-    const menu = vanDropdown.querySelector(".van-dropdown-menu");
-    if (menu) menu.hidden = true;
-    button?.setAttribute("aria-expanded", "false");
-  };
-
   const updateMoverOptions = () => {
     if (!vansSelect || !moversSelect) return;
 
@@ -317,37 +290,12 @@ if (quoteForm && quoteResult) {
     moversSelect.value = `${nextValue} ${nextValue === 1 ? "man" : "men"}`;
 
     if (moverCapacityNote) {
-      moverCapacityNote.textContent = `${vans} Luton van${vans === 1 ? "" : "s"} means ${vans} vehicle${vans === 1 ? "" : "s"} arriving. It allows ${minMovers}-${maxMovers} men. Maximum online booking is 5 vans and 15 men.`;
+      moverCapacityNote.textContent = `${vans} vehicle${vans === 1 ? "" : "s"} allows ${minMovers}-${maxMovers} men.`;
     }
-
-    syncVanDropdown();
   };
 
   updateMoverOptions();
   vansSelect?.addEventListener("change", updateMoverOptions);
-  vanDropdown?.addEventListener("click", (event) => {
-    const button = event.target.closest(".van-dropdown-button");
-    const option = event.target.closest("[data-value]");
-    const menu = vanDropdown.querySelector(".van-dropdown-menu");
-
-    if (button && menu) {
-      menu.hidden = !menu.hidden;
-      button.setAttribute("aria-expanded", String(!menu.hidden));
-      return;
-    }
-
-    if (option && vansSelect) {
-      vansSelect.value = option.dataset.value;
-      vansSelect.dispatchEvent(new Event("change", { bubbles: true }));
-      closeVanDropdown();
-    }
-  });
-  document.addEventListener("click", (event) => {
-    if (vanDropdown && !vanDropdown.contains(event.target)) closeVanDropdown();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeVanDropdown();
-  });
   addStopButton?.addEventListener("click", () => addAdditionalStop());
   additionalStopList?.addEventListener("click", (event) => {
     if (event.target.matches(".remove-stop")) {
