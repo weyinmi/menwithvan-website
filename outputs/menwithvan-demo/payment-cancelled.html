@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Payment Cancelled | Men With a Van</title>
+    <title>Payment Paused | Men With a Van</title>
     <meta name="robots" content="noindex,nofollow">
-    <meta name="description" content="Cancelled payment page for a Men With a Van booking.">
+    <meta name="description" content="Resume a Men With a Van booking after leaving secure Stripe checkout.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -23,23 +23,54 @@
     <main>
       <section class="page-hero">
         <p class="eyebrow">Secure payment</p>
-        <h1>Payment was not completed.</h1>
-        <p>Your booking request may still be saved as payment pending. You can return to the quote form or contact the office to arrange payment.</p>
+        <h1>Payment was paused.</h1>
+        <p>No card payment has been confirmed. Your booking draft is saved on this device, so you can continue from where you stopped.</p>
       </section>
       <section class="content-page">
-        <div class="quote-result error">
-          <strong>Checkout cancelled</strong>
+        <div class="quote-result payment-panel">
+          <div class="quote-result-head">
+            <span>Booking not yet paid</span>
+            <strong id="cancel-heading">Payment pending</strong>
+          </div>
           <p id="cancel-reference">No card payment has been confirmed for this checkout.</p>
+          <dl class="quote-breakdown">
+            <div><dt>What happens now?</dt><dd>Your move is not confirmed until Stripe payment is completed.</dd></div>
+            <div><dt>Your details</dt><dd id="draft-status">Checking saved booking draft...</dd></div>
+          </dl>
+          <p class="quote-distance">Return to the booking form to continue with the same quote, addresses, date, time and payment choice saved on this browser.</p>
+          <p class="calendar-actions">
+            <a class="payment-link" href="/#quote">Continue booking</a>
+            <a class="payment-link secondary-link" href="/#quote" id="start-fresh">Start a fresh quote</a>
+          </p>
         </div>
-        <p><a class="payment-link" href="/#quote">Return to quote form</a></p>
       </section>
     </main>
     <footer class="site-footer"><div><strong>Men With a Van</strong><p>London Luton van removals for homes, offices, flats, furniture and storage moves.</p></div><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/#quote">Quote</a><a href="reviews.html">Reviews</a><a href="terms-and-conditions.html">Terms</a></nav></footer>
     <script>
+      const draftKey = "menwithvan.bookingDraft.v1";
       const ref = new URLSearchParams(window.location.search).get("ref");
       if (ref) {
+        document.querySelector("#cancel-heading").textContent = ref;
         document.querySelector("#cancel-reference").textContent = `Booking ${ref} is still marked as payment pending.`;
       }
+
+      try {
+        const draft = JSON.parse(localStorage.getItem(draftKey) || sessionStorage.getItem(draftKey) || "{}");
+        document.querySelector("#draft-status").textContent = draft.quote
+          ? "Saved. You can continue from where you stopped."
+          : "No saved draft was found on this browser.";
+      } catch (error) {
+        document.querySelector("#draft-status").textContent = "No saved draft was found on this browser.";
+      }
+
+      document.querySelector("#start-fresh").addEventListener("click", () => {
+        try {
+          localStorage.removeItem(draftKey);
+          sessionStorage.removeItem(draftKey);
+        } catch (storageError) {
+          // The fresh quote link still works even if browser storage is blocked.
+        }
+      });
     </script>
   </body>
 </html>

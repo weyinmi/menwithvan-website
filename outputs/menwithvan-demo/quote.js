@@ -5,6 +5,8 @@ const moversSelect = quoteForm?.querySelector('select[name="movers"]');
 const moverCapacityNote = quoteForm?.querySelector("#mover-capacity-note");
 const additionalStopList = quoteForm?.querySelector("#additional-stop-list");
 const addStopButton = quoteForm?.querySelector("#add-stop");
+const BOOKING_DRAFT_KEY = "menwithvan.bookingDraft.v1";
+const BOOKING_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const pounds = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -13,6 +15,54 @@ const pounds = new Intl.NumberFormat("en-GB", {
 
 let lastQuotePayload = null;
 let lastQuote = null;
+
+function loadDraft() {
+  const stores = [];
+  ["localStorage", "sessionStorage"].forEach((name) => {
+    try {
+      if (window[name]) stores.push(window[name]);
+    } catch (error) {
+      // Some privacy modes block storage access; continue without draft restore.
+    }
+  });
+
+  for (const store of stores) {
+    try {
+      const raw = store.getItem(BOOKING_DRAFT_KEY);
+      if (!raw) continue;
+
+      const draft = JSON.parse(raw);
+      if (draft.expiresAt && Date.parse(draft.expiresAt) < Date.now()) {
+        store.removeItem(BOOKING_DRAFT_KEY);
+        continue;
+      }
+      return draft;
+    } catch (error) {
+      // Try the next storage option.
+    }
+  }
+
+  return {};
+}
+
+function saveDraft(partial) {
+  const draft = {
+    ...loadDraft(),
+    ...partial,
+    updatedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + BOOKING_DRAFT_TTL_MS).toISOString(),
+  };
+
+  try {
+    localStorage.setItem(BOOKING_DRAFT_KEY, JSON.stringify(draft));
+  } catch (error) {
+    try {
+      sessionStorage.setItem(BOOKING_DRAFT_KEY, JSON.stringify(draft));
+    } catch (storageError) {
+      // Draft saving is a convenience only; the booking flow must still work if storage is unavailable.
+    }
+  }
+}
 
 function firstNumber(value) {
   const match = String(value || "").match(/\d+/);
@@ -107,8 +157,149 @@ function addAdditionalStop(value = "") {
   additionalStopList.append(row);
 }
 
-function renderQuote(quote, payload) {
+function setNamedValue(form, name, value) {
+  const field = form?.elements?.[name];
+  if (!field || value === undefined || value === null) return;
+
+  if (field instanceof RadioNodeList) {
+    field.value = value;
+    return;
+  }
+
+  if (field.type === "checkbox") {
+    field.checked = Boolean(value);
+    return;
+  }
+
+  field.value = value;
+}
+
+function quoteFormDraft() {
+  if (!quoteForm) return {};
+
+  const data = new FormData(quoteForm);
+  return {
+    moveType: data.get("move-type"),
+    lutonVans: data.get("luton-vans"),
+    movers: data.get("movers"),
+    estimatedHours: data.get("estimated-hours"),
+    packAndMove: data.get("pack-and-move"),
+    pickup: data.get("pickup"),
+    delivery: data.get("delivery"),
+    additionalStops: data.getAll("additional-stop"),
+    pickupStairs: data.get("pickup-stairs"),
+    deliveryStairs: data.get("delivery-stairs"),
+    items: data.get("items"),
+  };
+}
+
+function saveQuoteFormDraft() {
+  saveDraft({ quoteForm: quoteFormDraft() });
+}
+
+function restoreQuoteFormDraft() {
+  const draft = loadDraft().quoteForm;
+  if (!draft || !quoteForm) return "";
+
+  setNamedValue(quoteForm, "move-type", draft.moveType);
+  setNamedValue(quoteForm, "luton-vans", draft.lutonVans);
+  setNamedValue(quoteForm, "estimated-hours", draft.estimatedHours);
+  setNamedValue(quoteForm, "pack-and-move", draft.packAndMove);
+  setNamedValue(quoteForm, "pickup", draft.pickup);
+  setNamedValue(quoteForm, "delivery", draft.delivery);
+  setNamedValue(quoteForm, "pickup-stairs", draft.pickupStairs);
+  setNamedValue(quoteForm, "delivery-stairs", draft.deliveryStairs);
+  setNamedValue(quoteForm, "items", draft.items);
+
+  if (additionalStopList) {
+    additionalStopList.innerHTML = "";
+    (draft.additionalStops || []).filter(Boolean).forEach((stop) => addAdditionalStop(stop));
+  }
+
+  return draft.movers || "";
+}
+
+function restoreMoverValue(value) {
+  if (!value || !moversSelect) return;
+
+  const match = Array.from(moversSelect.options).find((option) => option.value === value || option.textContent === value);
+  if (match) moversSelect.value = match.value;
+}
+
+function bookingFormDraft(bookingPanel) {
+  const data = new FormData(bookingPanel);
+  return {
+    customerName: data.get("customer-name"),
+    customerEmail: data.get("customer-email"),
+    customerPhone: data.get("customer-phone"),
+    moveDate: data.get("move-date"),
+    moveTime: data.get("move-time"),
+    pickupAddress: data.get("pickup-address"),
+    deliveryAddress: data.get("delivery-address"),
+    additionalAddresses: data.getAll("additional-address"),
+    paymentOption: data.get("payment-option"),
+    termsAccepted: data.get("terms-accepted") === "on",
+  };
+}
+
+function saveBookingFormDraft(bookingPanel) {
+  if (!bookingPanel) return;
+  saveDraft({ booking: bookingFormDraft(bookingPanel) });
+}
+
+function setTimeFieldState(bookingPanel, hasDate, selectedTime = "") {
+  const timeField = bookingPanel?.querySelector("[data-time-field]");
+  const timeInputs = bookingPanel?.querySelectorAll('input[name="move-time"]') || [];
+
+  if (timeField) timeField.hidden = !hasDate;
+  timeInputs.forEach((input) => {
+    input.disabled = !hasDate;
+    if (!hasDate) {
+      input.checked = false;
+      return;
+    }
+    input.checked = input.value === selectedTime;
+  });
+}
+
+function applyBookingFormDraft(bookingPanel, draft) {
+  if (!bookingPanel || !draft) return;
+
+  setNamedValue(bookingPanel, "customer-name", draft.customerName);
+  setNamedValue(bookingPanel, "customer-email", draft.customerEmail);
+  setNamedValue(bookingPanel, "customer-phone", draft.customerPhone);
+  setNamedValue(bookingPanel, "move-date", draft.moveDate);
+  setNamedValue(bookingPanel, "pickup-address", draft.pickupAddress);
+  setNamedValue(bookingPanel, "delivery-address", draft.deliveryAddress);
+  setNamedValue(bookingPanel, "payment-option", draft.paymentOption);
+  setNamedValue(bookingPanel, "terms-accepted", draft.termsAccepted);
+
+  bookingPanel.querySelectorAll('[name="additional-address"]').forEach((field, index) => {
+    field.value = draft.additionalAddresses?.[index] || field.value;
+  });
+  setTimeFieldState(bookingPanel, Boolean(draft.moveDate), draft.moveTime);
+}
+
+function openBookingPanel({ focus = true } = {}) {
+  const bookingPanel = quoteResult.querySelector(".booking-panel");
+  const actions = quoteResult.querySelector(".quote-actions");
+  if (!bookingPanel) return;
+
+  if (actions) actions.hidden = true;
+  bookingPanel.hidden = false;
+  saveDraft({ bookingOpen: true });
+
+  if (!focus) return;
+  window.requestAnimationFrame(() => {
+    bookingPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    bookingPanel.querySelector("input, select, textarea, button")?.focus({ preventScroll: true });
+  });
+}
+
+function renderQuote(quote, payload, options = {}) {
   const totals = quote.totals;
+  const overtimeHourlyIncVat = quote.overtime.hourlyRateIncVat;
+  const overtimeHalfHourIncVat = quote.overtime.halfHourRateIncVat ?? overtimeHourlyIncVat / 2;
   const status =
     quote.pricingStatus === "confirmed"
       ? "Confirmed rate basis"
@@ -128,6 +319,7 @@ function renderQuote(quote, payload) {
 
   lastQuote = quote;
   lastQuotePayload = payload;
+  saveDraft({ quote, quotePayload: payload });
 
   quoteResult.className = "quote-result success";
   quoteResult.innerHTML = `
@@ -164,10 +356,10 @@ function renderQuote(quote, payload) {
       </div>
       <div>
         <dt>Overtime rate after booked hours</dt>
-        <dd>${pounds.format(quote.overtime.hourlyRateIncVat)} / hour</dd>
+        <dd>${pounds.format(overtimeHourlyIncVat)} / hour inc VAT<br><small>${pounds.format(overtimeHalfHourIncVat)} per 30 mins inc VAT</small></dd>
       </div>
     </dl>
-    <p class="quote-distance">Route distance: ${quote.distance.miles} miles. Minimum booking: ${quote.rates.minimumHours} hours. Overtime after the booked time is ${pounds.format(quote.overtime.hourlyRateIncVat)} per extra hour or part-hour, payable to the driver on completion.</p>
+    <p class="quote-distance">Route distance: ${quote.distance.miles} miles. Minimum booking: ${quote.rates.minimumHours} hours. Overtime after the booked time is ${pounds.format(overtimeHourlyIncVat)} per hour including VAT, billed every 30 minutes at ${pounds.format(overtimeHalfHourIncVat)} including VAT, payable to the driver on completion.</p>
     <ul>
       ${quote.messages.map((message) => `<li>${message}</li>`).join("")}
     </ul>
@@ -218,16 +410,12 @@ function renderQuote(quote, payload) {
         </label>
         ${extraAddressFields}
         <label class="full">
-          Access notes
-          <textarea name="access-notes" rows="3" placeholder="Parking, lift booking, loading bay, concierge, timing restrictions, fragile items"></textarea>
-        </label>
-        <label class="full">
           Payment choice
           <select name="payment-option" required>
             <option value="deposit">Pay 25% deposit, balance on completion</option>
             <option value="full">Pay full amount online</option>
           </select>
-          <small>Any overtime beyond the booked hours is charged at ${pounds.format(quote.overtime.hourlyRateIncVat)} per extra hour or part-hour and is payable on completion.</small>
+          <small>Any overtime beyond the booked hours is charged at ${pounds.format(overtimeHourlyIncVat)} per hour including VAT, billed every 30 minutes at ${pounds.format(overtimeHalfHourIncVat)} including VAT, and is payable on completion.</small>
         </label>
         <label class="terms-check full">
           <input type="checkbox" name="terms-accepted" required>
@@ -237,30 +425,48 @@ function renderQuote(quote, payload) {
       <button type="submit">Continue to secure payment</button>
     </form>
   `;
+  if (options.restoreBookingDraft) {
+    const draft = loadDraft();
+    const bookingPanel = quoteResult.querySelector(".booking-panel");
+    applyBookingFormDraft(bookingPanel, draft.booking);
+    if (draft.bookingOpen) openBookingPanel({ focus: false });
+  }
   revealQuoteResult();
 }
 
 function renderPaymentRedirect(result) {
   const amountDue = result.payment?.amountDueNow || result.quote.totals.deposit25;
+  const paymentLabel = result.paymentOption === "full" ? "Full online payment" : "25% booking deposit";
+  const balanceText = result.paymentOption === "full"
+    ? "No balance remains after this online payment."
+    : `${pounds.format(result.quote.totals.balanceAfterDeposit)} balance is payable on completion.`;
   quoteResult.className = "quote-result success";
   quoteResult.innerHTML = `
     <div class="quote-result-head">
-      <span>Booking saved</span>
+      <span>Secure Stripe checkout</span>
       <strong>${result.reference}</strong>
     </div>
-    <p>${result.message}</p>
+    <p>Your booking details have been saved. Complete the secure Stripe payment to confirm your selected moving date and arrival time.</p>
     <dl class="quote-breakdown">
       <div>
-        <dt>Amount due now</dt>
+        <dt>Payment type</dt>
+        <dd>${paymentLabel}</dd>
+      </div>
+      <div>
+        <dt>Due now</dt>
         <dd>${pounds.format(amountDue)}</dd>
       </div>
       <div>
         <dt>Total including VAT</dt>
         <dd>${pounds.format(result.quote.totals.totalIncVat)}</dd>
       </div>
+      <div>
+        <dt>After payment</dt>
+        <dd>${balanceText}</dd>
+      </div>
     </dl>
-    <p class="quote-distance">Opening secure Stripe checkout now. If it does not open, use the payment button below.</p>
-    <p><a class="payment-link" href="${result.checkoutUrl}">Open secure payment</a></p>
+    <p class="quote-distance">Opening secure Stripe checkout now. If it does not open automatically, use the button below. If you return from Stripe, your booking draft is saved on this device.</p>
+    <p class="calendar-actions"><a class="payment-link" href="${result.checkoutUrl}">Continue to secure Stripe checkout</a></p>
   `;
 }
 
@@ -292,6 +498,7 @@ function renderBookingConfirmation(result) {
 
 if (quoteForm && quoteResult) {
   quoteResult.hidden = true;
+  const restoredMover = restoreQuoteFormDraft();
 
   const updateMoverOptions = () => {
     if (!vansSelect || !moversSelect) return;
@@ -318,11 +525,22 @@ if (quoteForm && quoteResult) {
   };
 
   updateMoverOptions();
-  vansSelect?.addEventListener("change", updateMoverOptions);
-  addStopButton?.addEventListener("click", () => addAdditionalStop());
+  restoreMoverValue(restoredMover);
+  saveQuoteFormDraft();
+  vansSelect?.addEventListener("change", () => {
+    updateMoverOptions();
+    saveQuoteFormDraft();
+  });
+  quoteForm.addEventListener("input", saveQuoteFormDraft);
+  quoteForm.addEventListener("change", saveQuoteFormDraft);
+  addStopButton?.addEventListener("click", () => {
+    addAdditionalStop();
+    saveQuoteFormDraft();
+  });
   additionalStopList?.addEventListener("click", (event) => {
     if (event.target.matches(".remove-stop")) {
       event.target.closest(".additional-stop-row")?.remove();
+      saveQuoteFormDraft();
     }
   });
 
@@ -374,33 +592,20 @@ if (quoteForm && quoteResult) {
   quoteResult.addEventListener("click", (event) => {
     if (!event.target.matches(".show-booking-form")) return;
 
-    const bookingPanel = quoteResult.querySelector(".booking-panel");
-    const actions = event.target.closest(".quote-actions");
-    if (!bookingPanel) return;
-
-    if (actions) actions.hidden = true;
-    bookingPanel.hidden = false;
-
-    window.requestAnimationFrame(() => {
-      bookingPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-      bookingPanel.querySelector("input, select, textarea, button")?.focus({ preventScroll: true });
-    });
+    openBookingPanel();
   });
 
   quoteResult.addEventListener("change", (event) => {
+    const bookingPanel = event.target.closest(".booking-panel");
+
     if (!event.target.matches('input[name="move-date"]')) return;
 
-    const bookingPanel = event.target.closest(".booking-panel");
-    const timeField = bookingPanel?.querySelector("[data-time-field]");
-    const timeInputs = bookingPanel?.querySelectorAll('input[name="move-time"]') || [];
     const hasDate = Boolean(event.target.value);
 
-    if (timeField) timeField.hidden = !hasDate;
-    timeInputs.forEach((input) => {
-      input.disabled = !hasDate;
-      if (!hasDate) input.checked = false;
-    });
+    setTimeFieldState(bookingPanel, hasDate, bookingPanel?.querySelector('input[name="move-time"]:checked')?.value || "");
+    saveBookingFormDraft(bookingPanel);
 
+    const timeField = bookingPanel?.querySelector("[data-time-field]");
     if (hasDate && timeField) {
       window.requestAnimationFrame(() => {
         timeField.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -408,9 +613,32 @@ if (quoteForm && quoteResult) {
     }
   });
 
+  quoteResult.addEventListener("input", (event) => {
+    const bookingPanel = event.target.closest(".booking-panel");
+    if (bookingPanel) saveBookingFormDraft(bookingPanel);
+  });
+
+  quoteResult.addEventListener("change", (event) => {
+    const bookingPanel = event.target.closest(".booking-panel");
+    if (bookingPanel) saveBookingFormDraft(bookingPanel);
+  });
+
+  quoteResult.addEventListener("click", (event) => {
+    const termsLink = event.target.closest('a[href="terms-and-conditions.html"]');
+    if (!termsLink) return;
+
+    const bookingPanel = termsLink.closest(".booking-panel");
+    if (bookingPanel) {
+      saveBookingFormDraft(bookingPanel);
+      saveDraft({ bookingOpen: true });
+    }
+  });
+
   quoteResult.addEventListener("submit", async (event) => {
     if (!event.target.matches(".booking-panel")) return;
     event.preventDefault();
+    saveBookingFormDraft(event.target);
+    saveDraft({ bookingOpen: true });
 
     if (!lastQuotePayload || !lastQuote) {
       showQuoteMessage("error", "Quote needed", "Please calculate the quote again before booking.");
@@ -431,7 +659,6 @@ if (quoteForm && quoteResult) {
         pickupAddress: data.get("pickup-address"),
         deliveryAddress: data.get("delivery-address"),
         additionalAddresses: cleanList(data.getAll("additional-address")),
-        accessNotes: data.get("access-notes"),
         paymentOption: data.get("payment-option"),
         termsAccepted: data.get("terms-accepted") === "on",
       },
@@ -460,4 +687,9 @@ if (quoteForm && quoteResult) {
       showQuoteMessage("error", "Booking service unavailable", "The booking request could not be saved. Please try again or contact the office.");
     }
   });
+
+  const draft = loadDraft();
+  if (draft.quote && draft.quotePayload) {
+    renderQuote(draft.quote, draft.quotePayload, { restoreBookingDraft: true });
+  }
 }

@@ -24,7 +24,7 @@
       <section class="page-hero">
         <p class="eyebrow">Secure payment</p>
         <h1>Payment received.</h1>
-        <p>Your booking is confirmed for the selected date and arrival time. Stripe will email the official card payment receipt.</p>
+        <p>Your booking is confirmed for the selected date and arrival time. Stripe will email the official card payment receipt, and Men With a Van will send your booking confirmation.</p>
       </section>
       <section class="content-page">
         <div id="payment-status" class="quote-result success">
@@ -37,6 +37,7 @@
     <footer class="site-footer"><div><strong>Men With a Van</strong><p>London Luton van removals for homes, offices, flats, furniture and storage moves.</p></div><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/#quote">Quote</a><a href="reviews.html">Reviews</a><a href="terms-and-conditions.html">Terms</a></nav></footer>
     <script>
       const pounds = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
+      const draftKey = "menwithvan.bookingDraft.v1";
       const statusBox = document.querySelector("#payment-status");
       const sessionId = new URLSearchParams(window.location.search).get("session_id");
 
@@ -75,6 +76,12 @@
             </dl>
             ${calendarLinks}
           `;
+          try {
+            localStorage.removeItem(draftKey);
+            sessionStorage.removeItem(draftKey);
+          } catch (storageError) {
+            // Payment is already confirmed; draft cleanup is only a convenience.
+          }
         } catch (error) {
           statusBox.className = "quote-result error";
           statusBox.innerHTML = "<strong>Payment saved</strong><p>We could not load the booking reference here, but Stripe will still email a payment receipt if payment completed.</p>";

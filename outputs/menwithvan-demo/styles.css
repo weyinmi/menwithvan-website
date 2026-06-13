@@ -655,6 +655,12 @@ textarea:focus {
   border-color: #f0b8aa;
 }
 
+.quote-result.payment-panel {
+  background: #f8fbfd;
+  border-color: rgba(11, 93, 122, 0.22);
+  box-shadow: 0 18px 44px rgba(13, 32, 51, 0.08);
+}
+
 .quote-result strong {
   color: var(--ink);
 }
@@ -711,6 +717,14 @@ textarea:focus {
   color: var(--ink);
   font-weight: 850;
   text-align: right;
+}
+
+.quote-breakdown dd small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .quote-breakdown .total {
