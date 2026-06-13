@@ -388,8 +388,52 @@ label small {
   line-height: 1.35;
 }
 
-label.full {
+.full {
   grid-column: 1 / -1;
+}
+
+.service-choice select {
+  max-width: 180px;
+}
+
+.location-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  background: #f8fbfd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.location-card legend {
+  padding: 0 6px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.included-note {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  background: #f7fbf8;
+  border: 1px solid rgba(47, 143, 91, 0.24);
+  border-radius: 8px;
+}
+
+.included-note strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.included-note span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
 }
 
 input,

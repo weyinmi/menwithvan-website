@@ -327,7 +327,7 @@ def create_stripe_checkout_session(reference, customer_email, payment_option, qu
         f"{quote['inputs']['movers']} mover(s), "
         f"{quote['inputs']['hours']:g} hour(s)"
     )
-    packing_text = " Pack and move service included." if quote.get("inputs", {}).get("packAndMove") else ""
+    packing_text = " Package and move service included." if quote.get("inputs", {}).get("packAndMove") else ""
     description = (
         f"{move_summary}. Booked for {move_date} at {move_time}. "
         f"VAT included.{packing_text} Overtime after booked hours: £{overtime.get('hourlyRateIncVat', 0):g}/hour inc VAT."
@@ -440,18 +440,19 @@ def booking_calendar_summary(row):
 
 def booking_calendar_description(row):
     overtime_rate = row["total_inc_vat"]
-    packing_line = "Packing service: Not included."
+    packing_line = "Package and move service: Not included."
     try:
         quote = json.loads(row["quote_json"] or "{}")
         overtime_rate = quote.get("overtime", {}).get("hourlyRateIncVat", overtime_rate)
         if quote.get("inputs", {}).get("packAndMove"):
-            packing_line = "Packing service: Pack and move included with standard packing materials."
+            packing_line = "Package and move service: Package loose items and move, including boxes, wardrobe boxes, tape, bubble wrap and packing paper."
     except Exception:
         pass
     return (
         f"Booking reference: {row['reference']}\n"
         f"{row['luton_vans']} Luton van(s), {row['movers']} mover(s), {row['estimated_hours']:g} booked hour(s).\n"
         f"{packing_line}\n"
+        f"Furniture dismantling/reassembly: Included as standard.\n"
         f"Total including VAT: £{row['total_inc_vat']:.2f}.\n"
         f"Overtime after booked hours: £{float(overtime_rate):.2f} per extra hour or part-hour, payable on completion.\n"
         f"Pickup: {row['pickup_address']}\n"
@@ -599,7 +600,7 @@ def render_confirmation_email(row):
     overtime_rate = quote.get("overtime", {}).get("hourlyRateIncVat", 0)
     pack_and_move = bool(quote.get("inputs", {}).get("packAndMove"))
     packing_text = (
-        "Included - standard packing materials, packing of loose household items and the move are included within the booked hours."
+        "Included - we bring boxes, wardrobe boxes, tape, bubble wrap and packing paper, package loose items such as clothes, crockery and drawer contents, then move everything within the booked hours."
         if pack_and_move
         else "Not included - move only."
     )
@@ -622,7 +623,8 @@ Move summary:
 - {row['movers']} mover(s)
 - {row['estimated_hours']:g} estimated hour(s)
 - Route distance: {row['distance_miles']:g} miles
-- Packing service: {packing_text}
+- Package and move service: {packing_text}
+- Furniture dismantling/reassembly: Included as standard
 
 Quote breakdown:
 {item_lines}
@@ -666,7 +668,8 @@ Men With a Van
   <p><strong>Delivery:</strong> {html.escape(row['delivery_address'] or '')}</p>
   <p><strong>Additional stops:</strong></p><ul>{html_extra}</ul>
   <p><strong>Team:</strong> {row['luton_vans']} Luton van(s), {row['movers']} mover(s), {row['estimated_hours']:g} estimated hour(s)</p>
-  <p><strong>Packing service:</strong> {html.escape(packing_text)}</p>
+  <p><strong>Package and move service:</strong> {html.escape(packing_text)}</p>
+  <p><strong>Furniture dismantling/reassembly:</strong> Included as standard.</p>
   <h2>Price</h2>
   <table cellpadding="8" cellspacing="0" border="1" style="border-collapse:collapse;border-color:#dce3eb">{html_rows}
     <tr><td>VAT</td><td>£{row['vat']:.2f}</td></tr>
@@ -987,8 +990,8 @@ def build_quote(payload):
     packing_subtotal = packing_service_rate * hours if pack_and_move else 0
     selected_hourly_rate = hourly_rate + (packing_service_rate if pack_and_move else 0)
     mileage_subtotal = distance_miles * MILEAGE_RATE
-    stairs_flights = pickup_stairs + delivery_stairs
-    stairs_subtotal = stairs_flights * movers * STAIR_RATE
+    stairs_floors = pickup_stairs + delivery_stairs
+    stairs_subtotal = stairs_floors * movers * STAIR_RATE
 
     congestion_applied, congestion_details = congestion_zone_status(pickup, delivery, additional_stops)
     congestion_subtotal = CONGESTION_FEE if congestion_applied else 0
@@ -1012,9 +1015,9 @@ def build_quote(payload):
     if pack_and_move:
         line_items.append(
             {
-                "label": f"Pack and move service ({int(PACKING_SERVICE_MULTIPLIER * 100)}% uplift for {hours:g} booked hour{'s' if hours != 1 else ''})",
+                "label": f"Package and move service ({int(PACKING_SERVICE_MULTIPLIER * 100)}% uplift for {hours:g} booked hour{'s' if hours != 1 else ''})",
                 "amountExVat": money(packing_subtotal),
-                "note": "Includes standard packing materials and packing of loose household items within the booked hours.",
+                "note": "Includes boxes, wardrobe boxes, tape, bubble wrap, packing paper and packaging of loose household items within the booked hours.",
             }
         )
     line_items.extend(
@@ -1024,7 +1027,7 @@ def build_quote(payload):
                 "amountExVat": money(mileage_subtotal),
             },
             {
-                "label": f"Stairs ({stairs_flights} flight{'s' if stairs_flights != 1 else ''} × {movers} mover{'s' if movers != 1 else ''})",
+                "label": f"Floors with stairs/no lift ({stairs_floors} floor{'s' if stairs_floors != 1 else ''} × {movers} mover{'s' if movers != 1 else ''})",
                 "amountExVat": money(stairs_subtotal),
             },
             {
@@ -1088,13 +1091,14 @@ def build_quote(payload):
         "messages": [
             "Minimum booking is two hours.",
             "Once online payment is completed, the selected date and arrival time are booked.",
+            "Furniture dismantling and reassembly is included as standard.",
             f"Overtime after the booked time is £{money(selected_hourly_rate * (1 + VAT_RATE)):.2f} per extra hour or part-hour, payable on completion.",
         ],
     }
 
     if pack_and_move:
         quote["messages"].append(
-            "Pack and move selected: standard packing materials and packing of loose household items are included within the booked hours."
+            "Package and move selected: we bring boxes, wardrobe boxes, tape, bubble wrap and packing paper, then package loose items such as clothes, crockery and drawer contents within the booked hours."
         )
     if not congestion_details["checked"]:
         quote["messages"].append("Congestion zone could not be checked automatically; the office will review it.")

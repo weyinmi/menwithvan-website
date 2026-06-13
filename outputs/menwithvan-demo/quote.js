@@ -313,7 +313,7 @@ if (quoteForm && quoteResult) {
     moversSelect.value = `${nextValue} ${nextValue === 1 ? "man" : "men"}`;
 
     if (moverCapacityNote) {
-      moverCapacityNote.textContent = `${vans} Luton van${vans === 1 ? "" : "s"} allows ${minMovers}-${maxMovers} men in total. These are the movers arriving to load, carry and move your items.`;
+      moverCapacityNote.textContent = `${vans} Luton van${vans === 1 ? "" : "s"} allows ${minMovers}-${maxMovers} movers in total. These are the people arriving to load, carry and move your items.`;
     }
   };
 
@@ -350,7 +350,7 @@ if (quoteForm && quoteResult) {
       return;
     }
 
-    showQuoteMessage("loading", "Calculating quote", "Checking route distance, vans, movers, packing option, stairs and VAT.");
+    showQuoteMessage("loading", "Calculating quote", "Checking route distance, vans, movers, packing option, floors/stairs and VAT.");
 
     try {
       const response = await fetch("/api/quote", {

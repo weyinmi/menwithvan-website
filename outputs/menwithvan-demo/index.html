@@ -16,7 +16,7 @@
     <meta name="theme-color" content="#0b5d7a">
     <link rel="preload" as="image" href="assets/hero-luton-removals.webp" type="image/webp">
     <link rel="stylesheet" href="styles.css">
-    <script src="quote.js?v=20260613-pack-move-flow" defer></script>
+    <script src="quote.js?v=20260613-clarity-polish" defer></script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -195,7 +195,7 @@
                 <small id="mover-capacity-note">Total men arriving to load, carry and move your items. 1 vehicle allows 1-3 men.</small>
               </label>
               <label>
-                Estimated total hours
+                Estimated total time needed for the move
                 <select name="estimated-hours" autocomplete="off">
                   <option>2 hours</option>
                   <option>3 hours</option>
@@ -209,57 +209,79 @@
                   <option>11 hours</option>
                   <option>12 hours</option>
                 </select>
-                <small>Choose the total booked time. For pack and move, include packing and moving time.</small>
+                <small>Choose how many hours you want the van(s) and movers booked for, from arrival to finish. Minimum booking is 2 hours.</small>
               </label>
-              <label class="full">
-                Packing service
+              <label class="service-choice">
+                Package and move service?
                 <select name="pack-and-move" autocomplete="off">
-                  <option value="no">No - move only</option>
-                  <option value="yes">Yes - pack and move</option>
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
                 </select>
-                <small>Pack and move means we bring standard packing materials, box loose items, then move everything within the booked hours.</small>
+                <small>Yes means we bring materials, package loose items, then move everything within the hours booked.</small>
               </label>
-              <label>
-                Pickup postcode or area
-                <input type="text" name="pickup" placeholder="e.g. N5, SE8 or SW1A 1AA" autocomplete="postal-code">
-              </label>
-              <label>
-                Delivery postcode or area
-                <input type="text" name="delivery" placeholder="e.g. E3, W11 or W1A 1AA" autocomplete="postal-code">
-              </label>
+              <div class="included-note">
+                <strong>Included as standard</strong>
+                <span>Furniture dismantling/reassembly is included. Package and move covers loose items such as clothes, crockery and drawer contents.</span>
+              </div>
+              <fieldset class="location-card">
+                <legend>Pickup details</legend>
+                <label>
+                  Pickup postcode or area
+                  <input type="text" name="pickup" placeholder="e.g. N5, SE8 or SW1A 1AA" autocomplete="postal-code">
+                </label>
+                <label>
+                  Pickup stairs involved in the move
+                  <select name="pickup-stairs" autocomplete="off">
+                    <option>Lift available</option>
+                    <option>Ground floor</option>
+                    <option>1st floor, no lift</option>
+                    <option>2nd floor, no lift</option>
+                    <option>3rd floor, no lift</option>
+                    <option>4th floor, no lift</option>
+                    <option>5th floor, no lift</option>
+                    <option>6th floor, no lift</option>
+                    <option>7th floor, no lift</option>
+                    <option>8th floor, no lift</option>
+                  </select>
+                  <small>For houses, include stairs inside the property too.</small>
+                </label>
+              </fieldset>
+              <fieldset class="location-card">
+                <legend>Delivery details</legend>
+                <label>
+                  Delivery postcode or area
+                  <input type="text" name="delivery" placeholder="e.g. E3, W11 or W1A 1AA" autocomplete="postal-code">
+                </label>
+                <label>
+                  Delivery stairs involved in the move
+                  <select name="delivery-stairs" autocomplete="off">
+                    <option>Lift available</option>
+                    <option>Ground floor</option>
+                    <option>1st floor, no lift</option>
+                    <option>2nd floor, no lift</option>
+                    <option>3rd floor, no lift</option>
+                    <option>4th floor, no lift</option>
+                    <option>5th floor, no lift</option>
+                    <option>6th floor, no lift</option>
+                    <option>7th floor, no lift</option>
+                    <option>8th floor, no lift</option>
+                  </select>
+                  <small>For houses, include stairs inside the property too.</small>
+                </label>
+              </fieldset>
               <div class="additional-stops full">
-                <div class="field-label">Additional pickup or drop-off postcodes/areas</div>
+                <div class="field-label">Extra pickup or drop-off?</div>
                 <div id="additional-stop-list" class="additional-stop-list"></div>
                 <button type="button" class="inline-action" id="add-stop">Add another stop</button>
-                <small>Optional. Add extra stops in the order the van should visit them, so mileage is calculated fairly. Full postcodes are best, but area postcodes can still give a guide quote.</small>
+                <small>Optional. Add extra stops in the order the van should visit them. Full postcodes are best, but area postcodes can still give a guide quote.</small>
               </div>
-              <label>
-                Pickup stairs
-                <select name="pickup-stairs" autocomplete="off">
-                  <option>Ground floor / lift</option>
-                  <option>1 flight</option>
-                  <option>2 flights</option>
-                  <option>3 flights</option>
-                  <option>4+ flights</option>
-                </select>
-              </label>
-              <label>
-                Delivery stairs
-                <select name="delivery-stairs" autocomplete="off">
-                  <option>Ground floor / lift</option>
-                  <option>1 flight</option>
-                  <option>2 flights</option>
-                  <option>3 flights</option>
-                  <option>4+ flights</option>
-                </select>
-              </label>
               <label class="full">
                 What needs moving?
-                <textarea name="items" rows="4" placeholder="Example: 60 boxes, sofa, beds, wardrobes, 2 desks, parking notes, lift access"></textarea>
+                <textarea name="items" rows="4" placeholder="Example: 60 boxes, sofa bed, wardrobe, 2 beds, packing notes"></textarea>
               </label>
             </div>
             <button type="submit">Calculate my guide quote</button>
-            <p class="form-note">Includes vehicles, men, hours, mileage, stairs, congestion zone and VAT.</p>
+            <p class="form-note">Includes Luton vans, movers, booked time, mileage, floor/stair charges where there is no lift, congestion zone, VAT, and standard furniture dismantling/reassembly.</p>
           </form>
           <div id="quote-result" class="quote-result" aria-live="polite"></div>
         </div>
