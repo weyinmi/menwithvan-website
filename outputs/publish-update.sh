@@ -29,7 +29,7 @@ fi
 bash -n outputs/deploy-menwithvan-checkout-fix.sh
 bash -n outputs/configure-menwithvan-gmail.sh
 
-git add README.md .github .gitignore outputs
+git add README.md .github .gitignore outputs synchronize
 git commit -m "$MESSAGE"
 GIT_SSH_COMMAND="ssh -i $GITHUB_KEY -o IdentitiesOnly=yes" git push
 

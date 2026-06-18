@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export COPYFILE_DISABLE=1
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST="${SYNCHRONIZE_HOST:-deploy@194.164.126.253}"
+KEY_PATH="${SYNCHRONIZE_KEY_PATH:-$ROOT_DIR/work/deploy-key/menwithvan_deploy_key}"
+KNOWN_HOSTS_PATH="${SYNCHRONIZE_KNOWN_HOSTS_PATH:-$ROOT_DIR/work/deploy-key/known_hosts}"
+REMOTE_HTML="${SYNCHRONIZE_REMOTE_HTML:-/var/www/menwithvan.com/html}"
+REMOTE_BACKEND="${SYNCHRONIZE_REMOTE_BACKEND:-/opt/menwithvan/backend/app.py}"
+LOCAL_HTML="$ROOT_DIR/outputs/menwithvan-demo"
+LOCAL_BACKEND="$ROOT_DIR/outputs/menwithvan-backend/app.py"
+BACKUP_DIR="$ROOT_DIR/work/synchronize-backups"
+
+usage() {
+  cat <<'USAGE'
+synchronize - Men With a Van VPS synchronisation helper
+
+Usage:
+  ./synchronize           Upload local files to the VPS. Same as ./synchronize push.
+  ./synchronize setup-ssh Install password-free VPS access for this project.
+  ./synchronize pull      Download live website/backend files from the VPS into this folder.
+  ./synchronize push      Upload local files to the VPS using the existing deploy helper.
+  ./synchronize status    Show local git changes and confirm the VPS can be reached.
+  ./synchronize help      Show this help.
+
+Environment overrides:
+  SYNCHRONIZE_HOST       SSH host, default deploy@194.164.126.253
+  SYNCHRONIZE_KEY_PATH   SSH key path, default work/deploy-key/menwithvan_deploy_key
+  SYNCHRONIZE_KNOWN_HOSTS_PATH
+                         Pinned SSH known_hosts path, default work/deploy-key/known_hosts
+  SYNCHRONIZE_ROOT_HOST  Root SSH host for setup-ssh, default root@194.164.126.253
+
+Safety:
+  - Pull creates a local backup before replacing local files.
+  - Push uses the existing deploy helper, which creates a VPS backup first.
+  - Secrets, Stripe keys, Google keys, email passwords and the booking database are not pulled.
+USAGE
+}
+
+need_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+ssh_remote() {
+  local args
+  args=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_PATH")
+  if [ -f "$KEY_PATH" ]; then
+    args+=(-i "$KEY_PATH" -o IdentitiesOnly=yes)
+  fi
+  ssh "${args[@]}" "$HOST" "$@"
+}
+
+setup_ssh() {
+  need_command ssh
+  need_command ssh-keygen
+
+  mkdir -p "$(dirname "$KEY_PATH")"
+  if [ ! -f "$KEY_PATH" ]; then
+    echo "Creating a project deploy key at: $KEY_PATH"
+    ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -C "codex-menwithvan-deploy"
+  fi
+  chmod 600 "$KEY_PATH"
+
+  if [ ! -f "$KEY_PATH.pub" ]; then
+    ssh-keygen -y -f "$KEY_PATH" > "$KEY_PATH.pub"
+  fi
+
+  local public_key host_name root_host
+  public_key="$(cat "$KEY_PATH.pub")"
+  if [[ "$public_key" == *"'"* ]]; then
+    echo "The SSH public key contains an unexpected quote character. Please regenerate the key." >&2
+    exit 1
+  fi
+
+  host_name="${HOST#*@}"
+  root_host="${SYNCHRONIZE_ROOT_HOST:-root@$host_name}"
+
+  echo "Connecting to $root_host one time to install the deploy key."
+  echo "Enter the VPS root password if SSH asks for it. After this, ./synchronize should not need a password."
+
+  if [ ! -s "$KNOWN_HOSTS_PATH" ]; then
+    echo "Pinning VPS SSH host key at: $KNOWN_HOSTS_PATH"
+    ssh-keyscan -H "$host_name" > "$KNOWN_HOSTS_PATH"
+    chmod 600 "$KNOWN_HOSTS_PATH"
+  fi
+
+  ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_PATH" -o IdentitiesOnly=yes -i "$KEY_PATH" "$root_host" "DEPLOY_PUBLIC_KEY='$public_key' bash -s" <<'REMOTE'
+set -euo pipefail
+
+id -u deploy >/dev/null 2>&1 || useradd -m -s /bin/bash deploy
+
+install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+touch /home/deploy/.ssh/authorized_keys
+if ! grep -qxF "$DEPLOY_PUBLIC_KEY" /home/deploy/.ssh/authorized_keys; then
+  echo "$DEPLOY_PUBLIC_KEY" >> /home/deploy/.ssh/authorized_keys
+fi
+chown -R deploy:deploy /home/deploy/.ssh
+chmod 600 /home/deploy/.ssh/authorized_keys
+
+cat > /usr/local/sbin/menwithvan-deploy-from-tar <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+PACKAGE="${1:-}"
+
+if [ -z "$PACKAGE" ] || [ ! -f "$PACKAGE" ]; then
+  echo "Package not found. Pass the deployment package path as the first argument." >&2
+  exit 1
+fi
+
+backup="/root/menwithvan-backups/$(date +%Y%m%d-%H%M%S)-auto-deploy"
+mkdir -p "$backup"
+
+if [ -d /var/www/menwithvan.com/html ]; then
+  cp -a /var/www/menwithvan.com/html "$backup/html"
+fi
+if [ -f /opt/menwithvan/backend/app.py ]; then
+  mkdir -p "$backup/backend"
+  cp /opt/menwithvan/backend/app.py "$backup/backend/app.py"
+fi
+
+workdir="$(mktemp -d /tmp/menwithvan-deploy.XXXXXX)"
+trap 'rm -rf "$workdir"; rm -f "$PACKAGE"' EXIT
+tar -xzf "$PACKAGE" -C "$workdir"
+
+if [ -f "$workdir/backend/app.py" ]; then
+  mkdir -p /opt/menwithvan/backend
+  cp "$workdir/backend/app.py" /opt/menwithvan/backend/app.py
+fi
+
+if [ -d "$workdir/html" ]; then
+  mkdir -p /var/www/menwithvan.com/html
+  cp -a "$workdir/html/." /var/www/menwithvan.com/html/
+fi
+
+python3 -m py_compile /opt/menwithvan/backend/app.py
+systemctl restart menwithvan-quote
+systemctl is-active menwithvan-quote
+nginx -t
+
+for attempt in $(seq 1 20); do
+  if curl -fsS http://127.0.0.1:3020/health >/dev/null 2>&1; then
+    echo "quote_api_health_ok True"
+    break
+  fi
+  if [ "$attempt" -eq 20 ]; then
+    echo "quote_api_health_ok False"
+    systemctl status menwithvan-quote --no-pager -l || true
+    exit 1
+  fi
+  sleep 1
+done
+
+echo "Backup saved at: $backup"
+echo "Auto deploy complete."
+SCRIPT
+chmod 755 /usr/local/sbin/menwithvan-deploy-from-tar
+
+cat > /etc/sudoers.d/menwithvan-deploy <<'SUDOERS'
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/menwithvan-deploy-from-tar
+SUDOERS
+chmod 440 /etc/sudoers.d/menwithvan-deploy
+visudo -cf /etc/sudoers.d/menwithvan-deploy >/dev/null
+
+echo "password_free_deploy_user_ready True"
+REMOTE
+
+  echo "Testing password-free deploy login..."
+  ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_PATH" -o IdentitiesOnly=yes -i "$KEY_PATH" "$HOST" "printf 'passwordless_ssh_ok True\n'; test -x /usr/local/sbin/menwithvan-deploy-from-tar && printf 'deploy_helper_ok True\n'"
+  echo "Ready. From now on, use: ./synchronize"
+}
+
+local_backup() {
+  local stamp backup
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup="$BACKUP_DIR/$stamp"
+  mkdir -p "$backup"
+  if [ -d "$LOCAL_HTML" ]; then
+    mkdir -p "$backup/html"
+    cp -a "$LOCAL_HTML/." "$backup/html/"
+  fi
+  if [ -f "$LOCAL_BACKEND" ]; then
+    mkdir -p "$backup/backend"
+    cp "$LOCAL_BACKEND" "$backup/backend/app.py"
+  fi
+  echo "$backup"
+}
+
+pull_live() {
+  need_command ssh
+  need_command tar
+
+  echo "Checking VPS connection: $HOST"
+  ssh_remote "test -d '$REMOTE_HTML' && test -f '$REMOTE_BACKEND'"
+
+  local backup package
+  backup="$(local_backup)"
+  package="$(mktemp -t menwithvan-live.XXXXXX.tgz)"
+  trap 'rm -f "$package"' RETURN
+
+  echo "Downloading live files from VPS..."
+  ssh_remote "tar -czf - -C '$REMOTE_HTML' . -C \"$(dirname "$REMOTE_BACKEND")\" \"$(basename "$REMOTE_BACKEND")\"" > "$package"
+
+  rm -rf "$ROOT_DIR/work/synchronize-live"
+  mkdir -p "$ROOT_DIR/work/synchronize-live"
+  tar -xzf "$package" -C "$ROOT_DIR/work/synchronize-live"
+
+  mkdir -p "$LOCAL_HTML" "$(dirname "$LOCAL_BACKEND")"
+  find "$LOCAL_HTML" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  cp -a "$ROOT_DIR/work/synchronize-live/." "$LOCAL_HTML/"
+
+  if [ -f "$LOCAL_HTML/app.py" ]; then
+    cp "$LOCAL_HTML/app.py" "$LOCAL_BACKEND"
+    rm -f "$LOCAL_HTML/app.py"
+  fi
+
+  echo "Pulled live files into outputs/."
+  echo "Local backup saved at: $backup"
+  echo "Review changes with: git diff -- outputs/menwithvan-demo outputs/menwithvan-backend/app.py"
+}
+
+push_live() {
+  need_command bash
+  echo "Uploading local files to VPS through the existing deploy helper..."
+  DEPLOY_KEY_PATH="$KEY_PATH" DEPLOY_KNOWN_HOSTS_PATH="$KNOWN_HOSTS_PATH" bash "$ROOT_DIR/outputs/deploy-menwithvan-checkout-fix.sh" "$HOST"
+}
+
+status_live() {
+  echo "Local unpublished changes:"
+  git -C "$ROOT_DIR" status --short || true
+  echo
+  echo "Checking VPS reachability and service state..."
+  ssh_remote "printf 'host_ok True\n'; systemctl is-active menwithvan-quote 2>/dev/null | sed 's/^/quote_service /'; test -d '$REMOTE_HTML' && printf 'html_path_ok True\n'; test -f '$REMOTE_BACKEND' && printf 'backend_path_ok True\n'"
+}
+
+case "${1:-push}" in
+  setup-ssh)
+    setup_ssh
+    ;;
+  pull)
+    pull_live
+    ;;
+  push)
+    push_live
+    ;;
+  status)
+    status_live
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    echo >&2
+    usage >&2
+    exit 2
+    ;;
+esac

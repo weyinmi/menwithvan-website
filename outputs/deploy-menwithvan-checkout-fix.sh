@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOST="${1:-deploy@194.164.126.253}"
 KEY_PATH="${DEPLOY_KEY_PATH:-$WORKSPACE_DIR/work/deploy-key/menwithvan_deploy_key}"
+KNOWN_HOSTS_PATH="${DEPLOY_KNOWN_HOSTS_PATH:-$WORKSPACE_DIR/work/deploy-key/known_hosts}"
 PACKAGE_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -18,36 +19,38 @@ cp "$WORKSPACE_DIR/outputs/menwithvan-backend/app.py" "$PACKAGE_DIR/backend/app.
 cp -R "$WORKSPACE_DIR/outputs/menwithvan-demo/." "$PACKAGE_DIR/html/"
 tar -C "$PACKAGE_DIR" -czf "$PACKAGE_DIR/menwithvan-checkout-fix.tgz" backend html
 
-SSH_ARGS=(-o StrictHostKeyChecking=accept-new)
+SSH_ARGS=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_PATH")
 if [ -f "$KEY_PATH" ]; then
-  SSH_ARGS+=(-i "$KEY_PATH")
+  SSH_ARGS+=(-i "$KEY_PATH" -o IdentitiesOnly=yes)
 fi
 
-echo "Uploading Men With a Van checkout fix to $HOST..."
-ssh "${SSH_ARGS[@]}" "$HOST" "cat > /tmp/menwithvan-deploy.tgz" < "$PACKAGE_DIR/menwithvan-checkout-fix.tgz"
+echo "Uploading Men With a Van update to $HOST..."
+REMOTE_PACKAGE="$(ssh "${SSH_ARGS[@]}" "$HOST" "mktemp /tmp/menwithvan-deploy.XXXXXX.tgz")"
+ssh "${SSH_ARGS[@]}" "$HOST" "cat > '$REMOTE_PACKAGE'" < "$PACKAGE_DIR/menwithvan-checkout-fix.tgz"
 
 if [[ "$HOST" == deploy@* ]]; then
   echo "Installing update through the deploy helper..."
-  ssh "${SSH_ARGS[@]}" "$HOST" "sudo -n /usr/local/sbin/menwithvan-deploy-from-tar /tmp/menwithvan-deploy.tgz"
-  echo "Checkout fix deployed."
+  ssh "${SSH_ARGS[@]}" "$HOST" "sudo -n /usr/local/sbin/menwithvan-deploy-from-tar '$REMOTE_PACKAGE'; rm -f '$REMOTE_PACKAGE'"
+  echo "Update deployed."
   exit 0
 fi
 
 echo "Installing update on server..."
-ssh "${SSH_ARGS[@]}" "$HOST" 'bash -s' <<'REMOTE'
+ssh "${SSH_ARGS[@]}" "$HOST" 'bash -s' "$REMOTE_PACKAGE" <<'REMOTE'
 set -euo pipefail
 
-backup="/root/menwithvan-backups/$(date +%Y%m%d-%H%M%S)-checkout-fix"
+PACKAGE="$1"
+backup="/root/menwithvan-backups/$(date +%Y%m%d-%H%M%S)-site-update"
 mkdir -p "$backup"
 cp -a /var/www/menwithvan.com/html "$backup/html"
 cp -a /opt/menwithvan/backend/app.py "$backup/app.py"
 
-rm -rf /tmp/menwithvan-checkout-fix
-mkdir -p /tmp/menwithvan-checkout-fix
-tar -xzf /tmp/menwithvan-checkout-fix.tgz -C /tmp/menwithvan-checkout-fix
+workdir="$(mktemp -d /tmp/menwithvan-deploy.XXXXXX)"
+trap 'rm -rf "$workdir"; rm -f "$PACKAGE"' EXIT
+tar -xzf "$PACKAGE" -C "$workdir"
 
-cp /tmp/menwithvan-checkout-fix/backend/app.py /opt/menwithvan/backend/app.py
-cp -a /tmp/menwithvan-checkout-fix/html/. /var/www/menwithvan.com/html/
+cp "$workdir/backend/app.py" /opt/menwithvan/backend/app.py
+cp -a "$workdir/html/." /var/www/menwithvan.com/html/
 
 python3 -m py_compile /opt/menwithvan/backend/app.py
 systemctl restart menwithvan-quote
@@ -142,5 +145,5 @@ finally:
 PY
 
 echo "Backup saved at: $backup"
-echo "Checkout fix deployed."
+echo "Update deployed."
 REMOTE

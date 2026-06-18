@@ -21,12 +21,13 @@ STAIR_RATE_PER_FLOOR_PER_MAN_EX_VAT=15.00
 CONGESTION_FEE_EX_VAT=27.00
 MAX_BOOKABLE_LUTON_VANS=5
 PACKING_SERVICE_MULTIPLIER=0.40
+OVERTIME_MULTIPLIER=1.30
 
 # Payments, added when Stripe is connected.
 SITE_BASE_URL=https://www.menwithvan.com
 STRIPE_SECRET_KEY=sk_test_replace_with_restricted_or_standard_secret_key
 STRIPE_WEBHOOK_SECRET=whsec_replace_with_webhook_signing_secret
-STRIPE_API_VERSION=2026-02-25.clover
+STRIPE_API_VERSION=2026-03-25.dahlia
 
 # Booking confirmation emails after paid Stripe webhook.
 SMTP_HOST=smtp.gmail.com

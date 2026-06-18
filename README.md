@@ -4,18 +4,38 @@ Production website and quote/booking backend for https://www.menwithvan.com.
 
 ## Deployment
 
-Deployments are handled by GitHub Actions. A push to `main` builds a package from:
+Production updates are handled directly with `./synchronize`. It builds a package from:
 
 - `outputs/menwithvan-demo/`
 - `outputs/menwithvan-backend/app.py`
 
-The action uploads the package to the VPS and runs the server-side deploy helper:
+The helper uploads the package to the VPS using a pinned SSH host key and a unique temporary package path, then runs the server-side deploy helper.
 
 ```bash
-sudo /usr/local/sbin/menwithvan-deploy-from-tar /tmp/menwithvan-deploy.tgz
+./synchronize
 ```
 
 The VPS keeps secrets such as Stripe, Google Maps and SMTP settings in `/etc/menwithvan/quote.env`; they are not stored in this repository.
+
+## Direct VPS Sync
+
+Use `synchronize` when you want to work locally and synchronise directly with the VPS:
+
+```bash
+./synchronize setup-ssh
+./synchronize
+./synchronize status
+./synchronize pull
+./synchronize push
+```
+
+- `./synchronize setup-ssh` installs password-free VPS access for this project. Run it once and enter the VPS root password if asked.
+- `./synchronize` uploads the local frontend and backend app to the VPS. It is the same as `./synchronize push`.
+- `./synchronize status` checks local unpublished changes and whether the VPS is reachable.
+- `./synchronize pull` downloads the live frontend and backend app from the VPS into `outputs/`, after creating a local backup in `work/synchronize-backups/`.
+- `./synchronize push` uploads the local frontend and backend app through the existing VPS deploy helper, which creates a server-side backup before replacing live files.
+
+`synchronize` does not pull secrets, Stripe keys, Google keys, email passwords or the booking database.
 
 ## Booking Email
 

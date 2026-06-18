@@ -33,16 +33,19 @@ jobs:
       - name: Configure SSH
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
+          test -n "$VPS_KNOWN_HOSTS"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/menwithvan_deploy_key
           chmod 600 ~/.ssh/menwithvan_deploy_key
-          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" 'whoami'
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" 'whoami'
 
       - name: Upload package
         env:
@@ -50,7 +53,9 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" 'cat > /tmp/menwithvan-deploy.tgz' < menwithvan-deploy.tgz
+          remote_package="$(ssh -o StrictHostKeyChecking=yes -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" 'mktemp /tmp/menwithvan-deploy.XXXXXX.tgz')"
+          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" "cat > '$remote_package'" < menwithvan-deploy.tgz
+          printf '%s\n' "$remote_package" > remote-package-path.txt
 
       - name: Install on VPS
         env:
@@ -58,4 +63,5 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" 'sudo -n /usr/local/sbin/menwithvan-deploy-from-tar /tmp/menwithvan-deploy.tgz'
+          remote_package="$(cat remote-package-path.txt)"
+          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/menwithvan_deploy_key "$VPS_USER@$VPS_HOST" "sudo -n /usr/local/sbin/menwithvan-deploy-from-tar '$remote_package'; rm -f '$remote_package'"

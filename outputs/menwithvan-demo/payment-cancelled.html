@@ -6,7 +6,7 @@
     <title>Payment Paused | Men With a Van</title>
     <meta name="robots" content="noindex,nofollow">
     <meta name="description" content="Resume a Men With a Van booking after leaving secure Stripe checkout.">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20260617-gallery19">
   </head>
   <body>
     <header class="site-header">
@@ -15,6 +15,7 @@
         <a href="/#services">Services</a>
         <a href="/#quote">Get quote</a>
         <a href="reviews.html">Reviews</a>
+        <a href="gallery.html">Gallery</a>
         <div class="nav-dropdown"><button type="button" aria-haspopup="true">More</button><div class="dropdown-menu"><a href="/#areas">Areas</a><a href="faq.html">FAQ</a><a href="blog.html">Moving advice</a><a href="terms-and-conditions.html">Terms</a></div></div>
         <a href="/#prices">Prices</a>
       </nav>
@@ -45,32 +46,7 @@
         </div>
       </section>
     </main>
-    <footer class="site-footer"><div><strong>Men With a Van</strong><p>London Luton van removals for homes, offices, flats, furniture and storage moves.</p></div><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/#quote">Quote</a><a href="reviews.html">Reviews</a><a href="terms-and-conditions.html">Terms</a></nav></footer>
-    <script>
-      const draftKey = "menwithvan.bookingDraft.v1";
-      const ref = new URLSearchParams(window.location.search).get("ref");
-      if (ref) {
-        document.querySelector("#cancel-heading").textContent = ref;
-        document.querySelector("#cancel-reference").textContent = `Booking ${ref} is still marked as payment pending.`;
-      }
-
-      try {
-        const draft = JSON.parse(localStorage.getItem(draftKey) || sessionStorage.getItem(draftKey) || "{}");
-        document.querySelector("#draft-status").textContent = draft.quote
-          ? "Saved. You can continue from where you stopped."
-          : "No saved draft was found on this browser.";
-      } catch (error) {
-        document.querySelector("#draft-status").textContent = "No saved draft was found on this browser.";
-      }
-
-      document.querySelector("#start-fresh").addEventListener("click", () => {
-        try {
-          localStorage.removeItem(draftKey);
-          sessionStorage.removeItem(draftKey);
-        } catch (storageError) {
-          // The fresh quote link still works even if browser storage is blocked.
-        }
-      });
-    </script>
+    <footer class="site-footer"><div><strong>Men With a Van</strong><p>London Luton van removals for homes, offices, flats, furniture and storage moves.</p></div><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/#quote">Quote</a><a href="reviews.html">Reviews</a><a href="gallery.html">Gallery</a><a href="terms-and-conditions.html">Terms</a></nav></footer>
+    <script src="payment-cancelled.js?v=20260617-gallery19" defer></script>
   </body>
 </html>

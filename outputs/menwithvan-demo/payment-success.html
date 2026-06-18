@@ -6,7 +6,7 @@
     <title>Payment Received | Men With a Van</title>
     <meta name="robots" content="noindex,nofollow">
     <meta name="description" content="Payment confirmation for a Men With a Van booking.">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20260617-gallery19">
   </head>
   <body>
     <header class="site-header">
@@ -15,6 +15,7 @@
         <a href="/#services">Services</a>
         <a href="/#quote">Get quote</a>
         <a href="reviews.html">Reviews</a>
+        <a href="gallery.html">Gallery</a>
         <div class="nav-dropdown"><button type="button" aria-haspopup="true">More</button><div class="dropdown-menu"><a href="/#areas">Areas</a><a href="faq.html">FAQ</a><a href="blog.html">Moving advice</a><a href="terms-and-conditions.html">Terms</a></div></div>
         <a href="/#prices">Prices</a>
       </nav>
@@ -34,61 +35,7 @@
         <p><a class="payment-link" href="/">Return to homepage</a></p>
       </section>
     </main>
-    <footer class="site-footer"><div><strong>Men With a Van</strong><p>London Luton van removals for homes, offices, flats, furniture and storage moves.</p></div><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/#quote">Quote</a><a href="reviews.html">Reviews</a><a href="terms-and-conditions.html">Terms</a></nav></footer>
-    <script>
-      const pounds = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
-      const draftKey = "menwithvan.bookingDraft.v1";
-      const statusBox = document.querySelector("#payment-status");
-      const sessionId = new URLSearchParams(window.location.search).get("session_id");
-
-      async function showPaymentStatus() {
-        if (!sessionId) {
-          statusBox.className = "quote-result error";
-          statusBox.innerHTML = "<strong>Payment reference missing</strong><p>If Stripe has taken payment, please contact the office with your Stripe receipt email.</p>";
-          return;
-        }
-
-        try {
-          const response = await fetch(`/api/payments/session?session_id=${encodeURIComponent(sessionId)}`);
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "Payment session not found.");
-          const paidText = result.paidAt
-            ? "Stripe has confirmed the payment."
-            : "Stripe is still confirming the payment; this normally updates shortly.";
-          statusBox.className = "quote-result success";
-          const calendarLinks = result.calendar
-            ? `<p class="quote-distance">Add this confirmed move to your calendar.</p>
-              <p class="calendar-actions">
-                <a class="payment-link" href="${result.calendar.icsUrl}">Apple / Outlook / Android</a>
-                <a class="payment-link secondary-link" href="${result.calendar.googleUrl}" target="_blank" rel="noopener">Google Calendar</a>
-              </p>`
-            : "";
-          statusBox.innerHTML = `
-            <div class="quote-result-head">
-              <span>Booking reference</span>
-              <strong>${result.reference}</strong>
-            </div>
-            <p>${paidText}</p>
-            <dl class="quote-breakdown">
-              <div><dt>Payment status</dt><dd>${result.paymentStatus.replaceAll("_", " ")}</dd></div>
-              <div><dt>Total including VAT</dt><dd>${pounds.format(result.totalIncVat)}</dd></div>
-              <div><dt>Balance remaining</dt><dd>${pounds.format(result.balanceAmount)}</dd></div>
-            </dl>
-            ${calendarLinks}
-          `;
-          try {
-            localStorage.removeItem(draftKey);
-            sessionStorage.removeItem(draftKey);
-          } catch (storageError) {
-            // Payment is already confirmed; draft cleanup is only a convenience.
-          }
-        } catch (error) {
-          statusBox.className = "quote-result error";
-          statusBox.innerHTML = "<strong>Payment saved</strong><p>We could not load the booking reference here, but Stripe will still email a payment receipt if payment completed.</p>";
-        }
-      }
-
-      showPaymentStatus();
-    </script>
+    <footer class="site-footer"><div><strong>Men With a Van</strong><p>London Luton van removals for homes, offices, flats, furniture and storage moves.</p></div><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/#quote">Quote</a><a href="reviews.html">Reviews</a><a href="gallery.html">Gallery</a><a href="terms-and-conditions.html">Terms</a></nav></footer>
+    <script src="payment-success.js?v=20260617-gallery19" defer></script>
   </body>
 </html>
