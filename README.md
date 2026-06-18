@@ -50,3 +50,23 @@ Gmail requires a Google app password, not the normal Gmail password. The one-tim
 ```bash
 bash outputs/configure-menwithvan-gmail.sh
 ```
+
+## Stripe Account Switch
+
+Stripe settings live only on the VPS in `/etc/menwithvan/quote.env`. To switch to a different Stripe account, use matching keys from the same account and mode:
+
+- `STRIPE_PUBLISHABLE_KEY` (`pk_test_...` or `pk_live_...`)
+- `STRIPE_SECRET_KEY` (`sk_test_...` or `sk_live_...`)
+- `STRIPE_WEBHOOK_SECRET` (`whsec_...`)
+
+Create the webhook endpoint in Stripe for:
+
+```text
+https://www.menwithvan.com/api/stripe/webhook
+```
+
+Then run:
+
+```bash
+bash outputs/configure-menwithvan-stripe.sh
+```
