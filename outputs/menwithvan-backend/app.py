@@ -45,7 +45,9 @@ BOOKING_HOLD_MINUTES = int(os.environ.get("BOOKING_HOLD_MINUTES", "45"))
 BOOKING_DRAFT_DAYS = int(os.environ.get("BOOKING_DRAFT_DAYS", "14"))
 MAX_ADDITIONAL_STOPS = int(os.environ.get("MAX_ADDITIONAL_STOPS", "5"))
 BOOKING_UPLOAD_ROOT = os.environ.get("BOOKING_UPLOAD_ROOT", "/var/lib/menwithvan/uploads")
+PENDING_WALKTHROUGH_UPLOAD_ROOT = os.environ.get("PENDING_WALKTHROUGH_UPLOAD_ROOT", "/var/lib/menwithvan/pending-uploads")
 WALKTHROUGH_UPLOAD_RETENTION_DAYS = int(os.environ.get("WALKTHROUGH_UPLOAD_RETENTION_DAYS", "90"))
+PENDING_WALKTHROUGH_UPLOAD_RETENTION_HOURS = int(os.environ.get("PENDING_WALKTHROUGH_UPLOAD_RETENTION_HOURS", "24"))
 MAX_WALKTHROUGH_UPLOAD_BYTES = int(os.environ.get("MAX_WALKTHROUGH_UPLOAD_BYTES", "0"))
 PACKING_SERVICE_MULTIPLIER = float(os.environ.get("PACKING_SERVICE_MULTIPLIER", "0.40"))
 OVERTIME_MULTIPLIER = float(os.environ.get("OVERTIME_MULTIPLIER", "1.30"))
@@ -529,9 +531,36 @@ def human_file_size(size):
     return "0 B"
 
 
-def upload_reference_dir(reference):
+def upload_reference_dir(reference, root=None):
+    root = root or BOOKING_UPLOAD_ROOT
     safe_reference = re.sub(r"[^A-Za-z0-9._-]+", "-", str(reference or "")).strip(".-")
-    return os.path.join(BOOKING_UPLOAD_ROOT, safe_reference)
+    return os.path.join(root, safe_reference)
+
+
+def pending_upload_reference_dir(reference):
+    return upload_reference_dir(reference, PENDING_WALKTHROUGH_UPLOAD_ROOT)
+
+
+def remove_tree_if_empty(path):
+    try:
+        os.rmdir(path)
+    except OSError:
+        pass
+
+
+def remove_upload_files(reference, items, root):
+    directory = upload_reference_dir(reference, root)
+    for item in items or []:
+        stored_name = os.path.basename(str(item.get("storedName") or ""))
+        if not stored_name:
+            continue
+        try:
+            os.remove(os.path.join(directory, stored_name))
+        except FileNotFoundError:
+            pass
+        except Exception as error:
+            print(f"Walkthrough cleanup failed for {reference}/{stored_name}: {error}")
+    remove_tree_if_empty(directory)
 
 
 def cleanup_expired_walkthrough_uploads(force=False):
@@ -539,43 +568,48 @@ def cleanup_expired_walkthrough_uploads(force=False):
     now = time.time()
     if not force and now - last_upload_cleanup < 3600:
         return
-    if not os.path.isdir(BOOKING_UPLOAD_ROOT):
-        last_upload_cleanup = now
-        return
     with upload_cleanup_lock:
         if not force and now - last_upload_cleanup < 3600:
             return
-        cutoff = now - (WALKTHROUGH_UPLOAD_RETENTION_DAYS * 24 * 60 * 60)
-        for root, dirs, files in os.walk(BOOKING_UPLOAD_ROOT, topdown=False):
-            for filename in files:
-                path = os.path.join(root, filename)
-                try:
-                    if os.path.getmtime(path) < cutoff:
-                        os.remove(path)
-                except FileNotFoundError:
-                    pass
-                except Exception as error:
-                    print(f"Walkthrough cleanup failed for {path}: {error}")
-            for dirname in dirs:
-                path = os.path.join(root, dirname)
-                try:
-                    os.rmdir(path)
-                except OSError:
-                    pass
+        cleanup_roots = [
+            (BOOKING_UPLOAD_ROOT, WALKTHROUGH_UPLOAD_RETENTION_DAYS * 24 * 60 * 60),
+            (PENDING_WALKTHROUGH_UPLOAD_ROOT, PENDING_WALKTHROUGH_UPLOAD_RETENTION_HOURS * 60 * 60),
+        ]
+        for upload_root, retention_seconds in cleanup_roots:
+            if not os.path.isdir(upload_root):
+                continue
+            cutoff = now - retention_seconds
+            for root, dirs, files in os.walk(upload_root, topdown=False):
+                for filename in files:
+                    path = os.path.join(root, filename)
+                    try:
+                        if os.path.getmtime(path) < cutoff:
+                            os.remove(path)
+                    except FileNotFoundError:
+                        pass
+                    except Exception as error:
+                        print(f"Walkthrough cleanup failed for {path}: {error}")
+                for dirname in dirs:
+                    remove_tree_if_empty(os.path.join(root, dirname))
+        try:
+            clear_expired_pending_upload_records(now)
+        except Exception as error:
+            print(f"Pending walkthrough record cleanup failed: {error}")
         last_upload_cleanup = now
 
 
-def save_walkthrough_uploads(reference, upload_fields):
+def save_walkthrough_uploads(reference, upload_fields, root=None, expires_at=None):
+    root = root or BOOKING_UPLOAD_ROOT
     upload_fields = [field for field in (upload_fields or []) if valid_upload_field(field)]
     if not upload_fields:
         return [], []
 
-    os.makedirs(upload_reference_dir(reference), exist_ok=True)
+    os.makedirs(upload_reference_dir(reference, root), exist_ok=True)
     saved = []
     errors = []
     total_size = 0
     uploaded_at = now_iso()
-    expires_at = iso_from_timestamp(time.time() + (WALKTHROUGH_UPLOAD_RETENTION_DAYS * 24 * 60 * 60))
+    expires_at = expires_at or iso_from_timestamp(time.time() + (WALKTHROUGH_UPLOAD_RETENTION_DAYS * 24 * 60 * 60))
 
     for field in upload_fields:
         original_name = safe_upload_name(field.filename)
@@ -586,7 +620,7 @@ def save_walkthrough_uploads(reference, upload_fields):
             continue
 
         stored_name = f"{uuid.uuid4().hex}-{original_name}"
-        target_path = os.path.join(upload_reference_dir(reference), stored_name)
+        target_path = os.path.join(upload_reference_dir(reference, root), stored_name)
         size = 0
         source = None
         close_source = False
@@ -641,19 +675,189 @@ def save_walkthrough_uploads(reference, upload_fields):
     if errors:
         for item in saved:
             try:
-                os.remove(os.path.join(upload_reference_dir(reference), item["storedName"]))
+                os.remove(os.path.join(upload_reference_dir(reference, root), item["storedName"]))
             except Exception:
                 pass
         return [], errors
     return saved, []
 
 
-def parse_walkthrough_uploads(row):
+def stage_pending_walkthrough_uploads(reference, upload_fields):
+    expires_at = iso_from_timestamp(time.time() + (PENDING_WALKTHROUGH_UPLOAD_RETENTION_HOURS * 60 * 60))
+    return save_walkthrough_uploads(reference, upload_fields, root=PENDING_WALKTHROUGH_UPLOAD_ROOT, expires_at=expires_at)
+
+
+def parse_uploads_json(value):
     try:
-        uploads = json.loads(row["walkthrough_uploads"] or "[]")
+        uploads = json.loads(value or "[]")
     except Exception:
         uploads = []
     return [item for item in uploads if isinstance(item, dict)]
+
+
+def parse_walkthrough_uploads(row):
+    try:
+        return parse_uploads_json(row["walkthrough_uploads"])
+    except Exception:
+        return []
+
+
+def parse_pending_walkthrough_uploads(row):
+    try:
+        return parse_uploads_json(row["pending_walkthrough_uploads"])
+    except Exception:
+        return []
+
+
+def pending_uploads_expired(items, now=None):
+    now = now or time.time()
+    for item in items or []:
+        expires_at = timestamp_from_iso(item.get("expiresAt"))
+        if expires_at and expires_at < now:
+            return True
+    return False
+
+
+def clear_expired_pending_upload_records(now=None):
+    if not os.path.exists(DB_PATH):
+        return
+    now = now or time.time()
+    with connect_db() as db:
+        try:
+            rows = db.execute(
+                """
+                SELECT reference, pending_walkthrough_uploads
+                FROM bookings
+                WHERE COALESCE(pending_walkthrough_uploads, '[]') != '[]'
+                """
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return
+        for row in rows:
+            items = parse_pending_walkthrough_uploads(row)
+            all_files_missing = all(
+                not os.path.isfile(os.path.join(pending_upload_reference_dir(row["reference"]), os.path.basename(str(item.get("storedName") or ""))))
+                for item in items
+            )
+            if not items or pending_uploads_expired(items, now) or all_files_missing:
+                remove_upload_files(row["reference"], items, PENDING_WALKTHROUGH_UPLOAD_ROOT)
+                db.execute("UPDATE bookings SET pending_walkthrough_uploads = '[]' WHERE reference = ?", (row["reference"],))
+
+
+def delete_pending_walkthrough_uploads(reference, db=None, reason="pending walkthrough discarded"):
+    reference = compact(reference, 80)
+    if not reference:
+        return 0
+    close_db = False
+    if db is None:
+        db = connect_db()
+        close_db = True
+    try:
+        try:
+            row = db.execute(
+                "SELECT reference, pending_walkthrough_uploads FROM bookings WHERE reference = ?",
+                (reference,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        items = parse_pending_walkthrough_uploads(row) if row else []
+        if items:
+            remove_upload_files(reference, items, PENDING_WALKTHROUGH_UPLOAD_ROOT)
+            log_booking_event(
+                reference,
+                "walkthrough_pending_discarded",
+                "system",
+                reason,
+                {"walkthroughUploads": len(items)},
+                db=db,
+            )
+        else:
+            remove_tree_if_empty(pending_upload_reference_dir(reference))
+        db.execute("UPDATE bookings SET pending_walkthrough_uploads = '[]' WHERE reference = ?", (reference,))
+        return len(items)
+    finally:
+        if close_db:
+            db.commit()
+            db.close()
+
+
+def promote_pending_walkthrough_uploads(reference, db=None):
+    reference = compact(reference, 80)
+    if not reference:
+        return 0
+    close_db = False
+    if db is None:
+        db = connect_db()
+        close_db = True
+    try:
+        try:
+            row = db.execute(
+                "SELECT reference, walkthrough_uploads, pending_walkthrough_uploads FROM bookings WHERE reference = ?",
+                (reference,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return 0
+        if not row:
+            return 0
+        pending = parse_pending_walkthrough_uploads(row)
+        if not pending:
+            return 0
+
+        confirmed = parse_walkthrough_uploads(row)
+        os.makedirs(upload_reference_dir(reference), exist_ok=True)
+        uploaded_at = now_iso()
+        expires_at = iso_from_timestamp(time.time() + (WALKTHROUGH_UPLOAD_RETENTION_DAYS * 24 * 60 * 60))
+        promoted = []
+        remaining_pending = []
+        for item in pending:
+            stored_name = os.path.basename(str(item.get("storedName") or ""))
+            if not stored_name:
+                continue
+            source_path = os.path.join(pending_upload_reference_dir(reference), stored_name)
+            if not os.path.isfile(source_path):
+                continue
+            target_path = os.path.join(upload_reference_dir(reference), stored_name)
+            try:
+                os.replace(source_path, target_path)
+            except Exception as error:
+                print(f"Could not promote walkthrough upload for {reference}: {error}")
+                remaining_pending.append(item)
+                continue
+            next_item = dict(item)
+            next_item["uploadedAt"] = uploaded_at
+            next_item["expiresAt"] = expires_at
+            promoted.append(next_item)
+
+        if promoted:
+            db.execute(
+                """
+                UPDATE bookings
+                SET walkthrough_uploads = ?,
+                    pending_walkthrough_uploads = ?
+                WHERE reference = ?
+                """,
+                (
+                    json.dumps(confirmed + promoted, ensure_ascii=False),
+                    json.dumps(remaining_pending, ensure_ascii=False),
+                    reference,
+                ),
+            )
+            log_booking_event(
+                reference,
+                "walkthrough_uploads_confirmed",
+                "system",
+                "Walkthrough uploads saved after payment confirmation.",
+                {"walkthroughUploads": len(promoted), "pendingRemaining": len(remaining_pending)},
+                db=db,
+            )
+        elif not remaining_pending:
+            db.execute("UPDATE bookings SET pending_walkthrough_uploads = '[]' WHERE reference = ?", (reference,))
+        remove_tree_if_empty(pending_upload_reference_dir(reference))
+        return len(promoted)
+    finally:
+        if close_db:
+            db.commit()
+            db.close()
 
 
 def walkthrough_upload_url(reference, item):
@@ -728,6 +932,7 @@ def connect_db():
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     os.makedirs(BOOKING_UPLOAD_ROOT, exist_ok=True)
+    os.makedirs(PENDING_WALKTHROUGH_UPLOAD_ROOT, exist_ok=True)
     with connect_db() as db:
         db.execute(
             """
@@ -779,6 +984,7 @@ def init_db():
                 completed_at TEXT,
                 cancelled_at TEXT,
                 walkthrough_uploads TEXT,
+                pending_walkthrough_uploads TEXT,
                 quote_json TEXT NOT NULL
             )
             """
@@ -803,6 +1009,7 @@ def init_db():
             "completed_at": "TEXT",
             "cancelled_at": "TEXT",
             "walkthrough_uploads": "TEXT",
+            "pending_walkthrough_uploads": "TEXT",
         }
         for column, column_type in migrations.items():
             if column not in existing:
@@ -1852,12 +2059,17 @@ def handle_stripe_event(event):
                 """,
                 (session_id, payment_intent, amount_total, currency, reference),
             )
+            discarded_uploads = delete_pending_walkthrough_uploads(
+                reference,
+                db=db,
+                reason="Pending walkthrough upload removed because Stripe checkout expired or payment failed.",
+            )
             log_booking_event(
                 reference,
                 "stripe_payment_failed",
                 "stripe",
                 "Stripe checkout expired or payment failed.",
-                {"eventType": event_type, "sessionId": session_id},
+                {"eventType": event_type, "sessionId": session_id, "discardedWalkthroughUploads": discarded_uploads},
                 db=db,
             )
             return
@@ -1896,12 +2108,19 @@ def handle_stripe_event(event):
             """,
             (payment_status, session_id, payment_intent, received_amount, currency, now_iso(), reference, session_id),
         )
+        promoted_uploads = promote_pending_walkthrough_uploads(reference, db=db)
         log_booking_event(
             reference,
             "stripe_payment_confirmed",
             "stripe",
             "Stripe payment confirmed and booking marked confirmed.",
-            {"sessionId": session_id, "paymentIntent": payment_intent, "amount": received_amount, "currency": currency},
+            {
+                "sessionId": session_id,
+                "paymentIntent": payment_intent,
+                "amount": received_amount,
+                "currency": currency,
+                "confirmedWalkthroughUploads": promoted_uploads,
+            },
             db=db,
         )
     send_booking_confirmations(reference)
@@ -2316,6 +2535,7 @@ def create_booking(payload, walkthrough_upload_fields=None):
     totals = quote["totals"]
     balance_amount = totals["balanceAfterDeposit"] if payment_option == "deposit" else 0
     walkthrough_uploads = []
+    pending_walkthrough_uploads = []
 
     with booking_capacity_lock:
         available, availability_error = slot_available(
@@ -2328,7 +2548,7 @@ def create_booking(payload, walkthrough_upload_fields=None):
         if not available:
             return None, [availability_error]
 
-        walkthrough_uploads, upload_errors = save_walkthrough_uploads(reference, walkthrough_upload_fields or [])
+        pending_walkthrough_uploads, upload_errors = stage_pending_walkthrough_uploads(reference, walkthrough_upload_fields or [])
         if upload_errors:
             return None, upload_errors
 
@@ -2343,8 +2563,8 @@ def create_booking(payload, walkthrough_upload_fields=None):
                     luton_vans, movers, estimated_hours, pickup_stairs, delivery_stairs,
                     distance_miles, subtotal_ex_vat, vat, total_inc_vat, deposit_amount,
                     balance_amount, item_notes, access_notes, additional_addresses, calendar_token,
-                    walkthrough_uploads, quote_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    walkthrough_uploads, pending_walkthrough_uploads, quote_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     reference,
@@ -2384,6 +2604,7 @@ def create_booking(payload, walkthrough_upload_fields=None):
                     ),
                     calendar_token,
                     json.dumps(walkthrough_uploads, ensure_ascii=False),
+                    json.dumps(pending_walkthrough_uploads, ensure_ascii=False),
                     json.dumps(quote, ensure_ascii=False),
                 ),
             )
@@ -2400,6 +2621,7 @@ def create_booking(payload, walkthrough_upload_fields=None):
                     "movers": inputs["movers"],
                     "hours": inputs["hours"],
                     "walkthroughUploads": len(walkthrough_uploads),
+                    "pendingWalkthroughUploads": len(pending_walkthrough_uploads),
                 },
                 db=db,
             )
@@ -2416,6 +2638,7 @@ def create_booking(payload, walkthrough_upload_fields=None):
             "pickupAddress": pickup_address,
             "deliveryAddress": delivery_address,
             "walkthroughUploads": len(walkthrough_uploads),
+            "pendingWalkthroughUploads": len(pending_walkthrough_uploads),
         },
         "payment": {
             "provider": "stripe",
@@ -2439,9 +2662,15 @@ def create_booking(payload, walkthrough_upload_fields=None):
             result["stripeSessionId"] = session.get("id")
             result["message"] = "Booking saved. Complete secure payment to confirm your move."
         except Exception as error:
+            delete_pending_walkthrough_uploads(reference, reason="Pending walkthrough upload removed because Stripe checkout could not be created.")
+            pending_walkthrough_uploads = []
+            result["booking"]["pendingWalkthroughUploads"] = 0
             result["payment"]["error"] = str(error)
             result["message"] = "Booking request saved, but the payment page could not be created. Please contact the office to complete payment."
     else:
+        delete_pending_walkthrough_uploads(reference, reason="Pending walkthrough upload removed because online Stripe payment is not connected.")
+        pending_walkthrough_uploads = []
+        result["booking"]["pendingWalkthroughUploads"] = 0
         result["message"] = "Booking request saved. Online Stripe payment is not connected on the server yet, so please contact the office to complete payment."
 
     return result, None
@@ -2535,11 +2764,6 @@ def refresh_booking_payment(reference, payload):
     amount_due_now = float(totals.get("deposit25") or 0) if payment_option == "deposit" else float(totals.get("totalIncVat") or 0)
 
     old_session_id = compact(row["stripe_checkout_session_id"], 180)
-    if stripe_enabled() and old_session_id:
-        try:
-            stripe_request("POST", f"/checkout/sessions/{urllib.parse.quote(old_session_id)}/expire", {})
-        except Exception:
-            pass
 
     with connect_db() as db:
         db.execute(
@@ -2607,6 +2831,11 @@ def refresh_booking_payment(reference, payload):
         try:
             session = create_stripe_checkout_session(reference, email, payment_option, quote, move_date, move_time)
             update_booking_with_stripe_session(reference, session)
+            if old_session_id and old_session_id != session.get("id"):
+                try:
+                    stripe_request("POST", f"/checkout/sessions/{urllib.parse.quote(old_session_id)}/expire", {})
+                except Exception:
+                    pass
             if session.get("client_secret") and STRIPE_PUBLISHABLE_KEY:
                 result["stripeClientSecret"] = session.get("client_secret")
                 result["stripePublishableKey"] = STRIPE_PUBLISHABLE_KEY
@@ -3225,7 +3454,7 @@ def render_booking_detail(reference, notice="", csrf_token=""):
         </section>
         <section class="detail-card" style="margin-top:18px">
           <h2>Pack and move walkthrough</h2>
-          <p><small>Customer-uploaded photos or videos for planning packaging materials. Files expire automatically after {WALKTHROUGH_UPLOAD_RETENTION_DAYS} days.</small></p>
+          <p><small>Customer-uploaded photos or videos for planning packaging materials. Files appear here only after payment is accepted, then expire automatically after {WALKTHROUGH_UPLOAD_RETENTION_DAYS} days.</small></p>
           {walkthrough_html}
         </section>
         <section class="detail-card" style="margin-top:18px">
@@ -3811,6 +4040,20 @@ class Handler(BaseHTTPRequestHandler):
                                 reference,
                             ),
                         )
+                        pending_upload_action = ""
+                        pending_upload_count = 0
+                        if payment_status in {"deposit_paid", "paid", "balance_due"}:
+                            pending_upload_count = promote_pending_walkthrough_uploads(reference, db=db)
+                            if pending_upload_count:
+                                pending_upload_action = "walkthrough uploads confirmed after payment update"
+                        elif payment_status == "failed" or status in {"cancelled", "refunded", "no_show"}:
+                            pending_upload_count = delete_pending_walkthrough_uploads(
+                                reference,
+                                db=db,
+                                reason="Pending walkthrough upload removed because booking was not paid or was cancelled.",
+                            )
+                            if pending_upload_count:
+                                pending_upload_action = "pending walkthrough uploads discarded"
                         status_changes = []
                         if existing["status"] != status:
                             status_changes.append(f"job status {status_label(existing['status'])} → {status_label(status)}")
@@ -3826,6 +4069,8 @@ class Handler(BaseHTTPRequestHandler):
                             status_changes.append("team/driver changed")
                         if (existing["admin_notes"] or "") != (admin_notes or ""):
                             status_changes.append("internal notes changed")
+                        if pending_upload_action:
+                            status_changes.append(pending_upload_action)
                         if status_changes:
                             log_booking_event(
                                 reference,
@@ -3837,6 +4082,8 @@ class Handler(BaseHTTPRequestHandler):
                                     "paymentStatus": payment_status,
                                     "assignedVehicles": assigned_vehicle_count,
                                     "assignedMovers": assigned_mover_count,
+                                    "walkthroughUploadAction": pending_upload_action,
+                                    "walkthroughUploadCount": pending_upload_count,
                                 },
                                 db=db,
                             )
