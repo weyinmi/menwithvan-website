@@ -14,7 +14,7 @@ BACKUP_DIR="$ROOT_DIR/work/synchronize-backups"
 
 usage() {
   cat <<'USAGE'
-synchronize - Men With Van VPS synchronisation helper
+synchronize - Men With A Van VPS synchronisation helper
 
 Usage:
   ./synchronize           Upload local files to the VPS. Same as ./synchronize push.

@@ -32,7 +32,7 @@ if [ -f "$KEY_PATH" ]; then
   SSH_ARGS+=(-i "$KEY_PATH" -o IdentitiesOnly=yes)
 fi
 
-echo "Installing Men With Van nginx security headers on $HOST..."
+echo "Installing Men With A Van nginx security headers on $HOST..."
 ssh "${SSH_ARGS[@]}" "$HOST" "JSON_LD_HASH='$JSON_LD_HASH' bash -s" <<'REMOTE'
 set -euo pipefail
 

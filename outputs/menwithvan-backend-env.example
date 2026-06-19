@@ -1,4 +1,4 @@
-# Men With Van backend environment template
+# Men With A Van backend environment template
 # Do not put real secrets in source control.
 
 NODE_ENV=production
@@ -34,5 +34,5 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=menwithvan4@gmail.com
 SMTP_PASSWORD=replace-with-gmail-app-password
-SMTP_FROM=Men With Van <menwithvan4@gmail.com>
+SMTP_FROM=Men With A Van <menwithvan4@gmail.com>
 OFFICE_EMAIL=menwithvan4@gmail.com

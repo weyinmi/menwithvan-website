@@ -46,7 +46,7 @@ updates = {
     "SMTP_PORT": "587",
     "SMTP_USER": email,
     "SMTP_PASSWORD": password,
-    "SMTP_FROM": f"Men With Van <{email}>",
+    "SMTP_FROM": f"Men With A Van <{email}>",
     "OFFICE_EMAIL": email,
 }
 
@@ -124,8 +124,8 @@ recipient = os.environ.get("OFFICE_EMAIL") or user
 message = EmailMessage()
 message["From"] = sender
 message["To"] = recipient
-message["Subject"] = "Men With Van Gmail SMTP test"
-message.set_content("Gmail SMTP is working for the Men With Van booking system.")
+message["Subject"] = "Men With A Van Gmail SMTP test"
+message.set_content("Gmail SMTP is working for the Men With A Van booking system.")
 
 try:
     with smtplib.SMTP(host, port, timeout=20) as smtp:

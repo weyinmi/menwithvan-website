@@ -9,7 +9,7 @@ DEFAULT_PUBLISHABLE_KEY="pk_test_51Tje7mIRhSEU8P0kQCiRaghD49tS05tTtooT5yQiPyXrf9
 STRIPE_API_VERSION="${STRIPE_API_VERSION:-2026-03-25.dahlia}"
 STRIPE_PAYMENT_METHOD_DOMAINS="${STRIPE_PAYMENT_METHOD_DOMAINS:-www.menwithvan.com menwithvan.com}"
 
-echo "This one-time setup switches Men With Van to a different Stripe account."
+echo "This one-time setup switches Men With A Van to a different Stripe account."
 echo "Use keys from the same Stripe account and the same mode: test with test, live with live."
 echo
 read -r -p "Stripe publishable key [$DEFAULT_PUBLISHABLE_KEY]: " STRIPE_PUBLISHABLE_KEY

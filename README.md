@@ -1,4 +1,4 @@
-# Men With Van Website
+# Men With A Van Website
 
 Production website and quote/booking backend for https://www.menwithvan.com.
 
@@ -42,7 +42,7 @@ Use `synchronize` when you want to work locally and synchronise directly with th
 Customer and office booking confirmations are sent through Gmail SMTP using:
 
 - `SMTP_USER=menwithvan4@gmail.com`
-- `SMTP_FROM=Men With Van <menwithvan4@gmail.com>`
+- `SMTP_FROM=Men With A Van <menwithvan4@gmail.com>`
 - `OFFICE_EMAIL=menwithvan4@gmail.com`
 
 Gmail requires a Google app password, not the normal Gmail password. The one-time helper below updates `/etc/menwithvan/quote.env` on the VPS and restarts the quote backend:

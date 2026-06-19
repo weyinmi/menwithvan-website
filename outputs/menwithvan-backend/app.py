@@ -1274,7 +1274,7 @@ def require_admin(handler):
         return True
     handler.send_response(401)
     send_security_headers(handler)
-    handler.send_header("WWW-Authenticate", 'Basic realm="Men With Van Admin"')
+    handler.send_header("WWW-Authenticate", 'Basic realm="Men With A Van Admin"')
     handler.send_header("Content-Type", "text/plain; charset=utf-8")
     handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
@@ -1376,7 +1376,7 @@ def create_stripe_checkout_session(reference, customer_email, payment_option, qu
         "metadata[move_date]": move_date,
         "metadata[move_time]": move_time,
         "payment_intent_data[receipt_email]": customer_email,
-        "payment_intent_data[description]": f"Men With Van amount due today - {reference}",
+        "payment_intent_data[description]": f"Men With A Van amount due today - {reference}",
         "payment_intent_data[metadata][booking_reference]": reference,
         "payment_intent_data[metadata][payment_option]": payment_option,
         "excluded_payment_method_types[0]": "amazon_pay",
@@ -1650,7 +1650,7 @@ def calendar_escape(value):
 
 
 def booking_calendar_summary(row):
-    return f"Men With Van booking {row['reference']}"
+    return f"Men With A Van booking {row['reference']}"
 
 
 def booking_calendar_description(row):
@@ -1704,7 +1704,7 @@ def booking_ics(row):
         [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//Men With Van//Booking//EN",
+            "PRODID:-//Men With A Van//Booking//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
             "BEGIN:VEVENT",
@@ -1857,7 +1857,7 @@ def render_confirmation_email(row):
 
     text_body = f"""Hello {row['customer_name']},
 
-Thank you for booking Men With Van. Your move is confirmed for the date and arrival time below.
+Thank you for booking Men With A Van. Your move is confirmed for the date and arrival time below.
 
 Booking reference: {row['reference']}
 Move date/time: {row['move_date']} / {row['move_time']}
@@ -1897,7 +1897,7 @@ Important notes:
 - Please make sure parking, lifts, building access and any concierge/loading bay arrangements are confirmed before the move.
 - Stripe will send the official payment receipt for the card payment.
 
-Men With Van
+Men With A Van
 """
 
     html_rows = "".join(
@@ -1912,7 +1912,7 @@ Men With Van
 <html><body style="font-family:Arial,sans-serif;color:#122034;line-height:1.5">
   <h1 style="color:#0f2d3a">Booking confirmation</h1>
   <p>Hello {html.escape(row['customer_name'])},</p>
-  <p>Thank you for booking Men With Van. Your move is confirmed and your booking reference is <strong>{html.escape(row['reference'])}</strong>.</p>
+  <p>Thank you for booking Men With A Van. Your move is confirmed and your booking reference is <strong>{html.escape(row['reference'])}</strong>.</p>
   <h2>Move details</h2>
   <p><strong>Date/time:</strong> {html.escape(row['move_date'] or '')} / {html.escape(row['move_time'] or '')}</p>
   <p><strong>Pickup:</strong> {html.escape(row['pickup_address'] or '')}</p>
@@ -1938,7 +1938,7 @@ Men With Van
   <p><a href="{html.escape(google_url)}">Add to Google Calendar</a></p>
   <p>Stripe will send the official card payment receipt separately.</p>
   <p>Please make sure parking, lifts, building access and any concierge/loading bay arrangements are ready before the move.</p>
-  <p>Men With Van</p>
+  <p>Men With A Van</p>
 </body></html>"""
     return text_body, html_body
 
@@ -1958,7 +1958,7 @@ def send_booking_confirmations(reference, force_customer=False, force_office=Fal
         text_body, html_body = render_confirmation_email(row)
         if force_customer or not customer_sent:
             try:
-                if send_email(row["customer_email"], f"Men With Van booking {reference}", text_body, html_body):
+                if send_email(row["customer_email"], f"Men With A Van booking {reference}", text_body, html_body):
                     db.execute("UPDATE bookings SET confirmation_email_sent_at = ? WHERE reference = ?", (now_iso(), reference))
                     log_booking_event(
                         reference,
@@ -3318,7 +3318,7 @@ def render_admin(notice="", csrf_token="", filters=None, return_to="/admin"):
 
     body = f"""
       <header>
-        <h1>Men With Van Admin</h1>
+        <h1>Men With A Van Admin</h1>
         <p>Manage bookings, payment state, move dates, assigned resources and customer confirmation records.</p>
       </header>
       <main>
@@ -3365,7 +3365,7 @@ def render_admin(notice="", csrf_token="", filters=None, return_to="/admin"):
         </section>
       </main>
     """
-    return admin_shell("Men With Van Admin", body)
+    return admin_shell("Men With A Van Admin", body)
 
 
 def render_booking_detail(reference, notice="", csrf_token=""):
@@ -4129,9 +4129,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise RuntimeError("Office email is not configured.")
                 sent = send_email(
                     OFFICE_EMAIL,
-                    "Men With Van email test",
-                    "This is a test email from the Men With Van booking system.",
-                    "<p>This is a test email from the Men With Van booking system.</p>",
+                    "Men With A Van email test",
+                    "This is a test email from the Men With A Van booking system.",
+                    "<p>This is a test email from the Men With A Van booking system.</p>",
                 )
                 notice = "Test email sent to office address." if sent else "Email is not configured."
             except Exception as error:

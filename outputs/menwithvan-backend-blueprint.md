@@ -1,14 +1,14 @@
-# Men With Van Backend Blueprint
+# Men With A Van Backend Blueprint
 
 ## Goal
 
-Build a professional booking system for Men With Van that supports online quotes, multi-Luton-van bookings, deposits, full payments, admin management, and secure operations.
+Build a professional booking system for Men With A Van that supports online quotes, multi-Luton-van bookings, deposits, full payments, admin management, and secure operations.
 
 The business model is Luton-only: the customer does not choose a van size. They choose the size of the job, and the system calculates the number of Luton vans, movers, hours, mileage, stairs, congestion zone, VAT, deposit and balance.
 
 ## Confirmed Front-End Positioning
 
-- Company name: Men With Van
+- Company name: Men With A Van
 - Fleet: 15 Luton vans
 - Customer-facing capacity: book up to 5 Luton vans at once
 - Service types: house removals, office removals, flat moves, student moves, furniture delivery, storage moves, packing/loading help
