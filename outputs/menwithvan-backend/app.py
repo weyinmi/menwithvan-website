@@ -172,6 +172,26 @@ def plural_count(value, singular, plural=None):
     return f"{count_text} {word}"
 
 
+def ordinal_floor(value):
+    number = int(value or 0)
+    if 10 <= number % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix} floor, no lift"
+
+
+def stair_fee_label(pickup_stairs, delivery_stairs):
+    parts = []
+    if pickup_stairs:
+        parts.append(f"pickup {ordinal_floor(pickup_stairs)}")
+    if delivery_stairs:
+        parts.append(f"delivery {ordinal_floor(delivery_stairs)}")
+    if not parts:
+        return "Stair fee - no stairs involved in the move"
+    return "Stair fee - " + "; ".join(parts)
+
+
 def first_int(value, default=0):
     if isinstance(value, (int, float)):
         return int(value)
@@ -1743,9 +1763,6 @@ def build_quote(payload):
                 "note": "Includes brand new complimentary packing materials such as wardrobe boxes, different size boxes, bubble wrap, tape and paper. Materials are yours to keep, and packing is completed within the booked hours.",
             }
         )
-    stairs_label = "Stairs fee - 0 stairs"
-    if stairs_floors:
-        stairs_label = f"Stairs fee - {stairs_floors} floor{'s' if stairs_floors != 1 else ''} with no lift"
     line_items.extend(
         [
             {
@@ -1753,7 +1770,7 @@ def build_quote(payload):
                 "amountExVat": money(mileage_subtotal),
             },
             {
-                "label": stairs_label,
+                "label": stair_fee_label(pickup_stairs, delivery_stairs),
                 "amountExVat": money(stairs_subtotal),
             },
             {
