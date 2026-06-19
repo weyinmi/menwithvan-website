@@ -66,6 +66,8 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 OFFICE_EMAIL = os.environ.get("OFFICE_EMAIL", "")
+PACK_AND_MOVE_WHATSAPP_NUMBER = os.environ.get("PACK_AND_MOVE_WHATSAPP_NUMBER", "+44 7403 358750")
+PACK_AND_MOVE_WHATSAPP_LINK = os.environ.get("PACK_AND_MOVE_WHATSAPP_LINK", "https://wa.me/447403358750")
 ADMIN_CSRF_COOKIE = "mwv_admin_csrf"
 PLACEHOLDER_ADMIN_PASSWORDS = {
     "",
@@ -1833,6 +1835,19 @@ def render_confirmation_email(row):
         if walkthrough_count
         else "No walkthrough files uploaded."
     )
+    walkthrough_whatsapp_text = ""
+    walkthrough_whatsapp_html = ""
+    if pack_and_move and not walkthrough_count:
+        walkthrough_text = "No walkthrough files uploaded yet."
+        walkthrough_whatsapp_text = (
+            "\nPack and move walkthrough:\n"
+            f"Please send us a walkthrough video by WhatsApp to {PACK_AND_MOVE_WHATSAPP_NUMBER} before the move. "
+            "This helps us bring the right complimentary packing materials and prepare the job properly.\n"
+        )
+        walkthrough_whatsapp_html = f"""
+  <h2>Pack and move walkthrough</h2>
+  <p>Please send us a walkthrough video by WhatsApp to <a href="{html.escape(PACK_AND_MOVE_WHATSAPP_LINK)}">{html.escape(PACK_AND_MOVE_WHATSAPP_NUMBER)}</a> before the move. This helps us bring the right complimentary packing materials and prepare the job properly.</p>
+"""
     packing_text = (
         "Included - we bring brand new complimentary packing materials such as wardrobe boxes, different size boxes, bubble wrap, tape and paper. We pack everything that needs packing, then move it. The materials are yours to keep, and packing time is included within the total booked hours."
         if pack_and_move
@@ -1876,6 +1891,7 @@ Payment:
 Overtime:
 If the move runs beyond the booked {hours_text}, overtime is charged at £{float(overtime_rate):.2f} per hour, billed every 30 minutes at £{float(overtime_half_hour):.2f}, and payable on completion by cash, card or bank transfer.
 
+{walkthrough_whatsapp_text}
 Calendar:
 Apple/Outlook/Android calendar file: {ics_url}
 Google Calendar: {google_url}
@@ -1920,6 +1936,7 @@ Men With Van
   <p>{html.escape(payment_text)}</p>
   <h2>Overtime</h2>
   <p>If the move runs beyond the booked {html.escape(hours_text)}, overtime is charged at <strong>£{float(overtime_rate):.2f} per hour</strong>, billed every 30 minutes at <strong>£{float(overtime_half_hour):.2f}</strong>, and payable on completion by cash, card or bank transfer.</p>
+  {walkthrough_whatsapp_html}
   <h2>Add to calendar</h2>
   <p><a href="{html.escape(ics_url)}">Apple / Outlook / Android calendar file</a></p>
   <p><a href="{html.escape(google_url)}">Add to Google Calendar</a></p>
@@ -2521,10 +2538,6 @@ def create_booking(payload, walkthrough_upload_fields=None):
         errors.append("Choose deposit or full payment.")
     if not terms_accepted:
         errors.append("Terms must be accepted before booking.")
-    upload_required = bool(quote.get("inputs", {}).get("packAndMove"))
-    has_uploads = any(valid_upload_field(field) for field in (walkthrough_upload_fields or []))
-    if upload_required and not has_uploads:
-        errors.append("Upload at least one walkthrough video or photo for the pack and move service.")
     if errors:
         return None, errors
 

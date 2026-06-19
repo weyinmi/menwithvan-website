@@ -104,7 +104,7 @@ function walkthroughUploadSection() {
             <span>On mobile, this can open the camera for a quick walkthrough.</span>
             <input type="file" name="walkthrough-media" accept="video/*,image/*" capture="environment">
           </label>
-          <p class="walkthrough-upload-note">Upload at least one walkthrough video or photo for the pack and move service. Files are only saved with your booking after Stripe payment is accepted, then automatically expire after 3 months.</p>
+          <p class="walkthrough-upload-note">Optional: upload a walkthrough video or photos now if you have them ready. If not, you can still book and send the walkthrough by WhatsApp after confirmation.</p>
           <div class="walkthrough-file-list" data-walkthrough-file-list>No walkthrough files selected yet.</div>
         </div>
       </section>
@@ -127,10 +127,6 @@ function updateWalkthroughFileList(bookingPanel) {
 
 function walkthroughUploadError(bookingPanel) {
   if (!lastQuotePayload?.packAndMove) return "";
-  const files = selectedWalkthroughFiles(bookingPanel);
-  if (!files.length) {
-    return "Upload at least one walkthrough video or photo for the pack and move service.";
-  }
   return "";
 }
 
