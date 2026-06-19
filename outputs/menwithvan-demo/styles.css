@@ -1138,29 +1138,11 @@ textarea:focus {
 }
 
 .payment-amount-card {
-  position: relative;
-  display: grid;
-  justify-items: center;
-  gap: 6px;
   margin-top: 18px;
   padding: 18px;
   color: var(--ink);
-  text-align: center;
   background: #fff;
-  border: 1px solid rgba(240, 180, 41, 0.36);
   border-radius: 8px;
-  box-shadow: 0 16px 34px rgba(13, 32, 51, 0.12);
-  overflow: hidden;
-}
-
-.payment-amount-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--accent), #f7d86b);
 }
 
 .payment-amount-card small,
@@ -1249,6 +1231,32 @@ textarea:focus {
   margin-top: 3px;
   color: var(--ink);
   font-size: 24px;
+}
+
+.stripe-payment-due-card {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  margin: 14px 0;
+  padding: 16px;
+  color: var(--ink);
+  text-align: center;
+  background: #fffdf6;
+  border: 1px solid rgba(240, 180, 41, 0.44);
+  border-radius: 8px;
+}
+
+.stripe-payment-due-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.stripe-payment-due-card strong {
+  color: var(--brand-dark);
+  font-size: clamp(28px, 3.4vw, 42px);
+  line-height: 1;
 }
 
 .embedded-payment-status {
@@ -1393,17 +1401,6 @@ textarea:focus {
 .booking-panel p {
   color: var(--muted);
   font-size: 14px;
-}
-
-.address-hint-note {
-  margin: 0 0 14px;
-  padding: 12px 14px;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 760;
-  background: var(--accent-soft);
-  border: 1px solid #ead7a2;
-  border-radius: 8px;
 }
 
 .address-section {

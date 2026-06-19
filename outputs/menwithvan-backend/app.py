@@ -754,7 +754,7 @@ def create_stripe_checkout_session(reference, customer_email, payment_option, qu
     amount = totals["deposit25"] if payment_option == "deposit" else totals["totalIncVat"]
     amount_pence = pence(amount)
     embedded_mode = bool(STRIPE_PUBLISHABLE_KEY)
-    payment_label = "25% DEPOSIT" if payment_option == "deposit" else "FULL PAYMENT"
+    payment_label = "BOOKING PAYMENT"
     params = {
         "mode": "payment",
         "submit_type": "book",
@@ -769,7 +769,7 @@ def create_stripe_checkout_session(reference, customer_email, payment_option, qu
         "metadata[move_date]": move_date,
         "metadata[move_time]": move_time,
         "payment_intent_data[receipt_email]": customer_email,
-        "payment_intent_data[description]": f"Men With a Van {payment_label} - {reference}",
+        "payment_intent_data[description]": f"Men With a Van booking payment - {reference}",
         "payment_intent_data[metadata][booking_reference]": reference,
         "payment_intent_data[metadata][payment_option]": payment_option,
         "excluded_payment_method_types[0]": "amazon_pay",

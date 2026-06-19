@@ -877,7 +877,6 @@ function renderQuote(quote, payload, options = {}) {
           <h4>Complete the full pickup and delivery addresses.</h4>
           <p>We prefill what we can from the postcode. Please add door number, flat, building name and any missing street details.</p>
         </div>
-        <p class="address-hint-note">Address boxes are saved on this device while you move through terms or Stripe, so you can return without starting again.</p>
         <div class="form-grid booking-field-grid address-field-grid">
           <label class="address-card">
             Full pickup address
@@ -1044,6 +1043,10 @@ function renderEmbeddedPayment(result) {
         <div class="embedded-payment-form-head">
           <span>Stripe secure checkout</span>
           <strong>Complete payment</strong>
+        </div>
+        <div class="stripe-payment-due-card">
+          <small>Amount due today</small>
+          <strong>${pounds.format(summary.amountDue)}</strong>
         </div>
         <p class="embedded-payment-status" data-embedded-payment-status>Preparing secure payment form...</p>
         <div id="embedded-checkout" class="embedded-checkout-frame"></div>
