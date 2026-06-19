@@ -172,24 +172,12 @@ def plural_count(value, singular, plural=None):
     return f"{count_text} {word}"
 
 
-def ordinal_floor(value):
-    number = int(value or 0)
-    if 10 <= number % 100 <= 20:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
-    return f"{number}{suffix} floor, no lift"
-
-
 def stair_fee_label(pickup_stairs, delivery_stairs):
-    parts = []
-    if pickup_stairs:
-        parts.append(f"pickup {ordinal_floor(pickup_stairs)}")
-    if delivery_stairs:
-        parts.append(f"delivery {ordinal_floor(delivery_stairs)}")
-    if not parts:
+    total_flights = int(pickup_stairs or 0) + int(delivery_stairs or 0)
+    if not total_flights:
         return "Stair fee - no stairs involved in the move"
-    return "Stair fee - " + "; ".join(parts)
+    flight_label = "flight" if total_flights == 1 else "flights"
+    return f"Stair fee - {total_flights} {flight_label} of stairs"
 
 
 def first_int(value, default=0):
