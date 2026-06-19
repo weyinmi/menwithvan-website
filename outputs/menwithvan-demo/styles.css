@@ -1211,15 +1211,6 @@ textarea:focus {
   line-height: 1.42;
 }
 
-.payment-edit-button {
-  width: 100%;
-  margin-top: 14px;
-  color: var(--brand-dark);
-  background: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  box-shadow: none;
-}
-
 .secure-payment-note {
   margin-top: 14px;
   font-size: 13px;
