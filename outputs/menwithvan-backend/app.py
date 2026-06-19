@@ -1837,10 +1837,10 @@ def build_quote(payload):
             "balanceAfterDeposit": money(total - deposit),
         },
         "messages": [
+            f"Overtime after the booked time is £{money(overtime_hourly_total):.2f} per hour, billed every 30 minutes at £{money(overtime_half_hour_total):.2f}, payable on completion by cash, card or bank transfer.",
             "Once online payment is completed, we send a confirmation email confirming the booking is final.",
             "Furniture dismantling and reassembly is included as standard.",
             "No hidden item-count charge: pricing is based on movers, booked hours, distance, stairs/floors, congestion zone and VAT.",
-            f"Overtime after the booked time is £{money(overtime_hourly_total):.2f} per hour, billed every 30 minutes at £{money(overtime_half_hour_total):.2f}, payable on completion by cash, card or bank transfer.",
         ],
     }
 

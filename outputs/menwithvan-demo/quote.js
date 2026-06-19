@@ -737,9 +737,12 @@ function renderQuote(quote, payload, options = {}) {
     })
     .filter((message) => {
       const text = message.toLowerCase();
-      return !text.includes("minimum booking")
-        && !text.includes("billed every 30 minutes")
-        && !text.startsWith("overtime after the booked time");
+      return !text.includes("minimum booking");
+    })
+    .sort((first, second) => {
+      const firstIsOvertime = first.toLowerCase().startsWith("overtime after the booked time");
+      const secondIsOvertime = second.toLowerCase().startsWith("overtime after the booked time");
+      return Number(secondIsOvertime) - Number(firstIsOvertime);
     });
 
   lastQuote = quote;
@@ -776,7 +779,6 @@ function renderQuote(quote, payload, options = {}) {
         <dd>${pounds.format(overtimeHourlyTotal)} / hour<br><small>${pounds.format(overtimeHalfHourTotal)} per 30 mins</small></dd>
       </div>
     </dl>
-    <p class="quote-distance">Route distance: ${quote.distance.miles} miles. Overtime after the booked time is ${pounds.format(overtimeHourlyTotal)} per hour, billed every 30 minutes at ${pounds.format(overtimeHalfHourTotal)}, payable on completion by cash, card or bank transfer.</p>
     <ul>
       ${displayMessages.map((message) => `<li>${escapeHtml(message)}</li>`).join("")}
     </ul>
