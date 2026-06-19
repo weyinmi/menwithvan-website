@@ -1146,10 +1146,13 @@ textarea:focus {
   padding: 20px 18px 18px;
   color: var(--ink);
   text-align: center;
-  background: #fff;
-  border: 1px solid rgba(240, 180, 41, 0.36);
+  background:
+    linear-gradient(135deg, rgba(255, 246, 216, 0.98) 0%, rgba(255, 255, 255, 0.98) 48%, rgba(229, 248, 250, 0.98) 100%);
+  border: 1px solid rgba(240, 180, 41, 0.48);
   border-radius: 8px;
-  box-shadow: 0 16px 34px rgba(13, 32, 51, 0.12);
+  box-shadow:
+    0 18px 36px rgba(13, 32, 51, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
   overflow: hidden;
 }
 
@@ -1160,13 +1163,13 @@ textarea:focus {
   right: 0;
   left: 0;
   height: 4px;
-  background: linear-gradient(90deg, var(--accent), #f7d86b);
+  background: linear-gradient(90deg, var(--accent), #f7d86b, var(--brand-2));
 }
 
 .payment-amount-card small,
 .payment-amount-card span {
   display: block;
-  color: var(--muted);
+  color: rgba(11, 93, 122, 0.78);
   font-size: 12px;
   font-weight: 950;
   text-transform: uppercase;
