@@ -764,6 +764,7 @@ def create_stripe_checkout_session(reference, customer_email, payment_option, qu
         "payment_intent_data[description]": f"Men With a Van {payment_label} - {reference}",
         "payment_intent_data[metadata][booking_reference]": reference,
         "payment_intent_data[metadata][payment_option]": payment_option,
+        "excluded_payment_method_types[0]": "amazon_pay",
         "wallet_options[link][display]": "never",
     }
     if embedded_mode:
