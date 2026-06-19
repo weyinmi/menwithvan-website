@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="${1:-root@194.164.126.253}"
+KEY_PATH="${DEPLOY_KEY_PATH:-$ROOT_DIR/work/deploy-key/menwithvan_deploy_key}"
+KNOWN_HOSTS_PATH="${DEPLOY_KNOWN_HOSTS_PATH:-$ROOT_DIR/work/deploy-key/known_hosts}"
 DEFAULT_PUBLISHABLE_KEY="pk_test_51Tje7mIRhSEU8P0kQCiRaghD49tS05tTtooT5yQiPyXrf9v1lE9PmTiApRFQBrjz9IjQJ2bUVYk4hCpU8HqAj19x00UeQhA5F3"
 STRIPE_API_VERSION="${STRIPE_API_VERSION:-2026-03-25.dahlia}"
 
@@ -53,7 +56,12 @@ else
 fi
 
 echo "Updating Stripe settings on $HOST..."
-ssh "$HOST" \
+SSH_ARGS=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_PATH")
+if [ -f "$KEY_PATH" ]; then
+  SSH_ARGS+=(-i "$KEY_PATH" -o IdentitiesOnly=yes)
+fi
+
+ssh "${SSH_ARGS[@]}" "$HOST" \
   "PUBLISHABLE_B64='$PUBLISHABLE_B64' SECRET_B64='$SECRET_B64' WEBHOOK_B64='$WEBHOOK_B64' API_VERSION_B64='$API_VERSION_B64' bash -s" <<'REMOTE'
 set -euo pipefail
 
