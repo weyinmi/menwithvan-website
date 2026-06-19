@@ -710,6 +710,7 @@ function renderQuote(quote, payload, options = {}) {
   destroyEmbeddedCheckout();
   const totals = quote.totals;
   const overtimeHourlyTotal = quote.overtime.hourlyRateIncVat;
+  const overtimeHalfHourTotal = quote.overtime.halfHourRateIncVat ?? overtimeHourlyTotal / 2;
   const status =
     quote.pricingStatus === "confirmed"
       ? "Confirmed rate basis"
@@ -772,10 +773,10 @@ function renderQuote(quote, payload, options = {}) {
       </div>
       <div>
         <dt>Overtime rate after booked hours</dt>
-        <dd>${pounds.format(overtimeHourlyTotal)} / hour<br><small>Billed every hour if needed</small></dd>
+        <dd>${pounds.format(overtimeHourlyTotal)} / hour<br><small>${pounds.format(overtimeHalfHourTotal)} per 30 mins</small></dd>
       </div>
     </dl>
-    <p class="quote-distance">Route distance: ${quote.distance.miles} miles. Overtime after the booked time is ${pounds.format(overtimeHourlyTotal)} per hour, billed every hour, payable on completion by cash, card or bank transfer.</p>
+    <p class="quote-distance">Route distance: ${quote.distance.miles} miles. Overtime after the booked time is ${pounds.format(overtimeHourlyTotal)} per hour, billed every 30 minutes at ${pounds.format(overtimeHalfHourTotal)}, payable on completion by cash, card or bank transfer.</p>
     <ul>
       ${displayMessages.map((message) => `<li>${escapeHtml(message)}</li>`).join("")}
     </ul>
@@ -919,7 +920,7 @@ function renderQuote(quote, payload, options = {}) {
                 </span>
               </label>
             </div>
-            <p class="payment-choice-note">Overtime after the booked time is ${pounds.format(overtimeHourlyTotal)} per hour, billed every hour, payable on completion by cash, card or bank transfer.</p>
+            <p class="payment-choice-note">Overtime after the booked time is ${pounds.format(overtimeHourlyTotal)} per hour, billed every 30 minutes at ${pounds.format(overtimeHalfHourTotal)}, payable on completion by cash, card or bank transfer.</p>
           </div>
           <label class="terms-check full">
             <input type="checkbox" name="terms-accepted" required>
@@ -950,6 +951,7 @@ function paymentSummary(result) {
   const moveDate = result.booking?.moveDate || "";
   const moveTime = result.booking?.moveTime || "";
   const selectedRate = result.quote.overtime?.hourlyRateIncVat || result.quote.rates?.selectedJobHourlyRateIncVat || 0;
+  const halfHourRate = result.quote.overtime?.halfHourRateIncVat || selectedRate / 2;
 
   return {
     amountDue,
@@ -957,6 +959,7 @@ function paymentSummary(result) {
     balanceText,
     inputs,
     selectedRate,
+    halfHourRate,
     moveDateLabel: formatMoveDateLabel(moveDate),
     moveTimeLabel: moveTime ? formatTimeSlot(moveTime) : "Selected arrival time",
     vehicleText: `${inputs.lutonVans || 1} Luton van${Number(inputs.lutonVans || 1) === 1 ? "" : "s"}`,
@@ -1030,7 +1033,7 @@ function renderEmbeddedPayment(result) {
         </div>
         <div class="payment-overtime-note">
           <strong>Overtime, if needed</strong>
-          <span>${pounds.format(summary.selectedRate)} per hour, billed every hour, payable on completion by cash, card or bank transfer.</span>
+          <span>${pounds.format(summary.selectedRate)} per hour, billed every 30 minutes at ${pounds.format(summary.halfHourRate)}, payable on completion by cash, card or bank transfer.</span>
         </div>
         <button type="button" class="payment-edit-button" data-back-to-booking>Change booking or payment choice</button>
         <p class="secure-payment-note">Card details are entered directly into Stripe. Men With a Van does not see or store card numbers.</p>

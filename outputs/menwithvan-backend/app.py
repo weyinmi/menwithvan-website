@@ -1040,10 +1040,12 @@ def booking_calendar_summary(row):
 
 def booking_calendar_description(row):
     overtime_rate = row["total_inc_vat"]
+    overtime_half_hour = overtime_rate / 2
     packing_line = "Package and move service: Not included."
     try:
         quote = json.loads(row["quote_json"] or "{}")
         overtime_rate = quote.get("overtime", {}).get("hourlyRateIncVat", overtime_rate)
+        overtime_half_hour = quote.get("overtime", {}).get("halfHourRateIncVat", float(overtime_rate) / 2)
         if quote.get("inputs", {}).get("packAndMove"):
             packing_line = "Package and move service: Included. We bring brand new complimentary packing materials such as wardrobe boxes, different size boxes, bubble wrap, tape and paper. Materials are yours to keep, and packing time is included within the total booked hours."
     except Exception:
@@ -1060,7 +1062,7 @@ def booking_calendar_description(row):
         f"Furniture dismantling/reassembly: Included as standard.\n"
         f"Pricing basis: No hidden item-count charge. The quote is based on movers, booked hours, distance, stairs/floors, congestion zone and VAT.\n"
         f"Total including VAT: £{row['total_inc_vat']:.2f}.\n"
-        f"Overtime after booked hours: £{float(overtime_rate):.2f} per hour, billed every hour, payable on completion by cash, card or bank transfer.\n"
+        f"Overtime after booked hours: £{float(overtime_rate):.2f} per hour, billed every 30 minutes at £{float(overtime_half_hour):.2f}, payable on completion by cash, card or bank transfer.\n"
         f"Pickup: {row['pickup_address']}\n"
         f"Delivery: {row['delivery_address']}"
     )
@@ -1206,6 +1208,7 @@ def render_confirmation_email(row):
     ) or "None"
     payment_text = payment_wording(row)
     overtime_rate = quote.get("overtime", {}).get("hourlyRateIncVat", 0)
+    overtime_half_hour = quote.get("overtime", {}).get("halfHourRateIncVat", float(overtime_rate or 0) / 2)
     pack_and_move = bool(quote.get("inputs", {}).get("packAndMove"))
     packing_text = (
         "Included - we bring brand new complimentary packing materials such as wardrobe boxes, different size boxes, bubble wrap, tape and paper. We pack everything that needs packing, then move it. The materials are yours to keep, and packing time is included within the total booked hours."
@@ -1247,7 +1250,7 @@ Payment:
 {payment_text}
 
 Overtime:
-If the move runs beyond the booked {hours_text}, overtime is charged at £{float(overtime_rate):.2f} per hour, billed every hour, and payable on completion by cash, card or bank transfer.
+If the move runs beyond the booked {hours_text}, overtime is charged at £{float(overtime_rate):.2f} per hour, billed every 30 minutes at £{float(overtime_half_hour):.2f}, and payable on completion by cash, card or bank transfer.
 
 Calendar:
 Apple/Outlook/Android calendar file: {ics_url}
@@ -1291,7 +1294,7 @@ Men With a Van
   <h2>Payment</h2>
   <p>{html.escape(payment_text)}</p>
   <h2>Overtime</h2>
-  <p>If the move runs beyond the booked {html.escape(hours_text)}, overtime is charged at <strong>£{float(overtime_rate):.2f} per hour</strong>, billed every hour, and payable on completion by cash, card or bank transfer.</p>
+  <p>If the move runs beyond the booked {html.escape(hours_text)}, overtime is charged at <strong>£{float(overtime_rate):.2f} per hour</strong>, billed every 30 minutes at <strong>£{float(overtime_half_hour):.2f}</strong>, and payable on completion by cash, card or bank transfer.</p>
   <h2>Add to calendar</h2>
   <p><a href="{html.escape(ics_url)}">Apple / Outlook / Android calendar file</a></p>
   <p><a href="{html.escape(google_url)}">Add to Google Calendar</a></p>
@@ -1735,23 +1738,26 @@ def build_quote(payload):
     if pack_and_move:
         line_items.append(
             {
-                "label": f"Package and move service ({int(PACKING_SERVICE_MULTIPLIER * 100)}% uplift for {hours:g} booked hour{'s' if hours != 1 else ''})",
+                "label": "Pack and move service",
                 "amountExVat": money(packing_subtotal),
                 "note": "Includes brand new complimentary packing materials such as wardrobe boxes, different size boxes, bubble wrap, tape and paper. Materials are yours to keep, and packing is completed within the booked hours.",
             }
         )
+    stairs_label = "Stairs fee - 0 stairs"
+    if stairs_floors:
+        stairs_label = f"Stairs fee - {stairs_floors} floor{'s' if stairs_floors != 1 else ''} with no lift"
     line_items.extend(
         [
             {
-                "label": f"Route mileage ({distance_miles:g} miles across {len(route_legs)} leg{'s' if len(route_legs) != 1 else ''} at £{MILEAGE_RATE:g}/mile)",
+                "label": f"Route mileage fee ({distance_miles:g} miles)",
                 "amountExVat": money(mileage_subtotal),
             },
             {
-                "label": f"Floors with stairs/no lift ({stairs_floors} floor{'s' if stairs_floors != 1 else ''} × {movers} mover{'s' if movers != 1 else ''})",
+                "label": stairs_label,
                 "amountExVat": money(stairs_subtotal),
             },
             {
-                "label": "Congestion zone",
+                "label": "Congestion zone fee",
                 "amountExVat": money(congestion_subtotal),
                 "applied": congestion_applied,
                 "note": congestion_details["note"],
@@ -1800,10 +1806,10 @@ def build_quote(payload):
             "hourlyRateIncVat": money(overtime_hourly_total),
             "halfHourRateExVat": money(overtime_hourly_rate / 2),
             "halfHourRateIncVat": money(overtime_half_hour_total),
-            "billingIntervalMinutes": 60,
+            "billingIntervalMinutes": 30,
             "multiplier": OVERTIME_MULTIPLIER,
             "upliftPercent": money((OVERTIME_MULTIPLIER - 1) * 100),
-            "note": f"Overtime after the booked hours is charged at {int((OVERTIME_MULTIPLIER - 1) * 100)}% above the booked hourly rate. The displayed overtime rate is the final amount, billed every hour, and payable on completion by cash, card or bank transfer.",
+            "note": f"Overtime after the booked hours is charged at {int((OVERTIME_MULTIPLIER - 1) * 100)}% above the booked hourly rate. The displayed overtime rate is the final amount, billed every 30 minutes at £{money(overtime_half_hour_total):.2f}, and payable on completion by cash, card or bank transfer.",
         },
         "lineItems": line_items,
         "totals": {
@@ -1817,7 +1823,7 @@ def build_quote(payload):
             "Once online payment is completed, we send a confirmation email confirming the booking is final.",
             "Furniture dismantling and reassembly is included as standard.",
             "No hidden item-count charge: pricing is based on movers, booked hours, distance, stairs/floors, congestion zone and VAT.",
-            f"Overtime after the booked time is £{money(overtime_hourly_total):.2f} per hour, billed every hour, payable on completion by cash, card or bank transfer.",
+            f"Overtime after the booked time is £{money(overtime_hourly_total):.2f} per hour, billed every 30 minutes at £{money(overtime_half_hour_total):.2f}, payable on completion by cash, card or bank transfer.",
         ],
     }
 
@@ -2588,6 +2594,7 @@ def render_admin(notice="", csrf_token="", filters=None, return_to="/admin"):
         paid_at = f"<br><small>Paid {html.escape(row['paid_at'])}</small>" if row["paid_at"] else ""
         quote = quote_from_row(row)
         overtime_rate = float(quote.get("overtime", {}).get("hourlyRateIncVat") or 0)
+        overtime_half_hour = float(quote.get("overtime", {}).get("halfHourRateIncVat") or overtime_rate / 2)
         additional_addresses = parse_additional_addresses(row)
         extra_stop_text = ""
         if additional_addresses:
@@ -2616,7 +2623,7 @@ def render_admin(notice="", csrf_token="", filters=None, return_to="/admin"):
               <td>{html.escape(row['customer_name'])}<br><small>{html.escape(row['customer_email'])}<br>{html.escape(row['customer_phone'])}</small></td>
               <td>{html.escape(row['move_date'] or '')}<br><small>{html.escape(row['move_time'] or '')}</small></td>
               <td>{html.escape(row['pickup_postcode'] or '')} → {html.escape(row['delivery_postcode'] or '')}<br><small>{row['luton_vans']} vans, {row['movers']} men, {row['estimated_hours']:g} hrs<br>{html.escape(assigned_text)}</small>{extra_stop_text}</td>
-              <td>{total}<br><small>Due now {due_now}<br>Balance {balance}<br>Overtime £{overtime_rate:.2f}/hr<br>Billed hourly<br>{html.escape(stripe_detail)}</small>{paid_at}</td>
+              <td>{total}<br><small>Due now {due_now}<br>Balance {balance}<br>Overtime £{overtime_rate:.2f}/hr<br>£{overtime_half_hour:.2f}/30 mins<br>{html.escape(stripe_detail)}</small>{paid_at}</td>
               <td>
                 <span class="badge {status_badge_class(row['status'])}">{html.escape(status_label(row['status']))}</span>
                 <span class="badge {status_badge_class(row['payment_status'])}">{html.escape(payment_status_label(row['payment_status']))}</span>
