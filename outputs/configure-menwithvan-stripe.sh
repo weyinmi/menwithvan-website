@@ -7,6 +7,7 @@ KEY_PATH="${DEPLOY_KEY_PATH:-$ROOT_DIR/work/deploy-key/menwithvan_deploy_key}"
 KNOWN_HOSTS_PATH="${DEPLOY_KNOWN_HOSTS_PATH:-$ROOT_DIR/work/deploy-key/known_hosts}"
 DEFAULT_PUBLISHABLE_KEY="pk_test_51Tje7mIRhSEU8P0kQCiRaghD49tS05tTtooT5yQiPyXrf9v1lE9PmTiApRFQBrjz9IjQJ2bUVYk4hCpU8HqAj19x00UeQhA5F3"
 STRIPE_API_VERSION="${STRIPE_API_VERSION:-2026-03-25.dahlia}"
+STRIPE_PAYMENT_METHOD_DOMAINS="${STRIPE_PAYMENT_METHOD_DOMAINS:-www.menwithvan.com menwithvan.com}"
 
 echo "This one-time setup switches Men With a Van to a different Stripe account."
 echo "Use keys from the same Stripe account and the same mode: test with test, live with live."
@@ -48,11 +49,13 @@ if base64 --help 2>&1 | grep -q -- "-w"; then
   SECRET_B64="$(printf '%s' "$STRIPE_SECRET_KEY" | base64 -w 0)"
   WEBHOOK_B64="$(printf '%s' "$STRIPE_WEBHOOK_SECRET" | base64 -w 0)"
   API_VERSION_B64="$(printf '%s' "$STRIPE_API_VERSION" | base64 -w 0)"
+  DOMAINS_B64="$(printf '%s' "$STRIPE_PAYMENT_METHOD_DOMAINS" | base64 -w 0)"
 else
   PUBLISHABLE_B64="$(printf '%s' "$STRIPE_PUBLISHABLE_KEY" | base64 | tr -d '\n')"
   SECRET_B64="$(printf '%s' "$STRIPE_SECRET_KEY" | base64 | tr -d '\n')"
   WEBHOOK_B64="$(printf '%s' "$STRIPE_WEBHOOK_SECRET" | base64 | tr -d '\n')"
   API_VERSION_B64="$(printf '%s' "$STRIPE_API_VERSION" | base64 | tr -d '\n')"
+  DOMAINS_B64="$(printf '%s' "$STRIPE_PAYMENT_METHOD_DOMAINS" | base64 | tr -d '\n')"
 fi
 
 echo "Updating Stripe settings on $HOST..."
@@ -62,20 +65,22 @@ if [ -f "$KEY_PATH" ]; then
 fi
 
 ssh "${SSH_ARGS[@]}" "$HOST" \
-  "PUBLISHABLE_B64='$PUBLISHABLE_B64' SECRET_B64='$SECRET_B64' WEBHOOK_B64='$WEBHOOK_B64' API_VERSION_B64='$API_VERSION_B64' bash -s" <<'REMOTE'
+  "PUBLISHABLE_B64='$PUBLISHABLE_B64' SECRET_B64='$SECRET_B64' WEBHOOK_B64='$WEBHOOK_B64' API_VERSION_B64='$API_VERSION_B64' DOMAINS_B64='$DOMAINS_B64' bash -s" <<'REMOTE'
 set -euo pipefail
 
 STRIPE_PUBLISHABLE_KEY="$(printf '%s' "$PUBLISHABLE_B64" | base64 -d)"
 STRIPE_SECRET_KEY="$(printf '%s' "$SECRET_B64" | base64 -d)"
 STRIPE_WEBHOOK_SECRET="$(printf '%s' "$WEBHOOK_B64" | base64 -d)"
 STRIPE_API_VERSION="$(printf '%s' "$API_VERSION_B64" | base64 -d)"
-export STRIPE_PUBLISHABLE_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_API_VERSION
+STRIPE_PAYMENT_METHOD_DOMAINS="$(printf '%s' "$DOMAINS_B64" | base64 -d)"
+export STRIPE_PUBLISHABLE_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_API_VERSION STRIPE_PAYMENT_METHOD_DOMAINS
 
 python3 - <<'PY'
 import json
 import os
 import shlex
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -83,21 +88,52 @@ secret_key = os.environ["STRIPE_SECRET_KEY"]
 publishable_key = os.environ["STRIPE_PUBLISHABLE_KEY"]
 webhook_secret = os.environ["STRIPE_WEBHOOK_SECRET"]
 api_version = os.environ["STRIPE_API_VERSION"]
+payment_method_domains = [
+    domain.strip()
+    for domain in os.environ.get("STRIPE_PAYMENT_METHOD_DOMAINS", "").split()
+    if domain.strip()
+]
 
-request = urllib.request.Request("https://api.stripe.com/v1/account")
-request.add_header("Authorization", f"Bearer {secret_key}")
-request.add_header("Stripe-Version", api_version)
-try:
-    with urllib.request.urlopen(request, timeout=20) as response:
-        account = json.loads(response.read().decode("utf-8"))
-except urllib.error.HTTPError as error:
-    body = error.read().decode("utf-8", errors="replace")
-    raise SystemExit(f"Stripe secret key validation failed: {body}") from error
+def stripe_request(method, path, params=None):
+    query = ""
+    body = None
+    if method == "GET" and params:
+        query = "?" + urllib.parse.urlencode(params, doseq=True)
+    elif method == "POST":
+        body = urllib.parse.urlencode(params or {}, doseq=True).encode("utf-8")
+    request = urllib.request.Request(f"https://api.stripe.com/v1{path}{query}", data=body, method=method)
+    request.add_header("Authorization", f"Bearer {secret_key}")
+    request.add_header("Stripe-Version", api_version)
+    if method == "POST":
+        request.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body_text = error.read().decode("utf-8", errors="replace")
+        try:
+            message = json.loads(body_text).get("error", {}).get("message") or body_text
+        except Exception:
+            message = body_text
+        raise SystemExit(f"Stripe request failed: {message}") from error
+
+account = stripe_request("GET", "/account")
 
 secret_live = secret_key.startswith("sk_live_")
 publishable_live = publishable_key.startswith("pk_live_")
 if bool(account.get("livemode")) != secret_live or secret_live != publishable_live:
     raise SystemExit("Stripe key mode mismatch. Use test keys together or live keys together.")
+
+if payment_method_domains:
+    existing = stripe_request("GET", "/payment_method_domains", {"limit": 100})
+    by_domain = {item.get("domain_name"): item for item in existing.get("data", [])}
+    for domain in payment_method_domains:
+        current = by_domain.get(domain)
+        if current and not current.get("enabled"):
+            current = stripe_request("POST", f"/payment_method_domains/{current['id']}", {"enabled": "true"})
+        elif not current:
+            current = stripe_request("POST", "/payment_method_domains", {"domain_name": domain})
+        print(f"stripe_payment_method_domain {domain} enabled={bool(current.get('enabled'))}")
 
 path = Path("/etc/menwithvan/quote.env")
 text = path.read_text() if path.exists() else ""

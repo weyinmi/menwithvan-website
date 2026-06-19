@@ -70,3 +70,5 @@ Then run:
 ```bash
 bash outputs/configure-menwithvan-stripe.sh
 ```
+
+The helper also registers `www.menwithvan.com` and `menwithvan.com` as Stripe payment method domains so Apple Pay and Google Pay can appear in embedded Checkout on supported devices and browsers.
