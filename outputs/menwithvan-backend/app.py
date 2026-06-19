@@ -514,7 +514,7 @@ def media_kind(content_type, filename):
         return "image"
     if extension in VIDEO_EXTENSIONS:
         return "video"
-    return ""
+    return "document"
 
 
 def valid_upload_field(field):
@@ -617,10 +617,6 @@ def save_walkthrough_uploads(reference, upload_fields, root=None, expires_at=Non
         original_name = safe_upload_name(field.filename)
         content_type = compact(getattr(field, "type", "") or mimetypes.guess_type(original_name)[0] or "application/octet-stream", 120)
         kind = media_kind(content_type, original_name)
-        if not kind:
-            errors.append(f"{original_name} must be an image or video file.")
-            continue
-
         stored_name = f"{uuid.uuid4().hex}-{original_name}"
         target_path = os.path.join(upload_reference_dir(reference, root), stored_name)
         size = 0
@@ -3580,11 +3576,12 @@ def serve_walkthrough_upload(handler, reference, stored_name):
 
     content_type = compact(match.get("contentType"), 120) or mimetypes.guess_type(match.get("originalName") or stored_name)[0] or "application/octet-stream"
     original_name = safe_upload_name(match.get("originalName") or stored_name)
+    disposition = "inline" if match.get("kind") in {"image", "video"} else "attachment"
     size = os.path.getsize(path)
     handler.send_response(200)
     send_security_headers(handler)
     handler.send_header("Content-Type", content_type)
-    handler.send_header("Content-Disposition", f'inline; filename="{original_name}"')
+    handler.send_header("Content-Disposition", f'{disposition}; filename="{original_name}"')
     handler.send_header("Cache-Control", "private, no-store")
     handler.send_header("Content-Length", str(size))
     handler.end_headers()

@@ -96,15 +96,15 @@ function walkthroughUploadSection() {
         <div class="walkthrough-upload-card">
           <label class="walkthrough-dropzone">
             <strong>Upload walkthrough files</strong>
-            <span>Choose videos or photos from your phone, tablet or computer.</span>
-            <input type="file" name="walkthrough-media" accept="video/*,image/*" multiple>
+            <span>Choose videos, photos, PDFs or documents from your phone, tablet or computer.</span>
+            <input type="file" name="walkthrough-media" multiple>
           </label>
           <label class="walkthrough-capture">
             <strong>Record or take photos now</strong>
             <span>On mobile, this can open the camera for a quick walkthrough.</span>
             <input type="file" name="walkthrough-media" accept="video/*,image/*" capture="environment">
           </label>
-          <p class="walkthrough-upload-note">Optional: upload a walkthrough video or photos now if you have them ready. If not, you can still book and send the walkthrough by WhatsApp after confirmation.</p>
+          <p class="walkthrough-upload-note">Optional: upload a walkthrough video, photos, PDF or documents now if you have them ready. If not, you can still book and send the walkthrough by WhatsApp after confirmation.</p>
           <div class="walkthrough-file-list" data-walkthrough-file-list>No walkthrough files selected yet.</div>
         </div>
       </section>
