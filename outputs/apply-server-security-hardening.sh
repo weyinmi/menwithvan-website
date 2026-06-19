@@ -37,7 +37,7 @@ ssh "${SSH_ARGS[@]}" "$HOST" "JSON_LD_HASH='$JSON_LD_HASH' bash -s" <<'REMOTE'
 set -euo pipefail
 
 cat > /etc/nginx/conf.d/menwithvan-security-headers.conf <<EOF
-client_max_body_size 1m;
+client_max_body_size 0;
 proxy_hide_header Strict-Transport-Security;
 proxy_hide_header X-Content-Type-Options;
 proxy_hide_header X-Frame-Options;

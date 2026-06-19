@@ -13,6 +13,7 @@ import re
 import smtplib
 import sqlite3
 import ssl
+import tempfile
 import threading
 import time
 import urllib.error
@@ -45,8 +46,7 @@ BOOKING_DRAFT_DAYS = int(os.environ.get("BOOKING_DRAFT_DAYS", "14"))
 MAX_ADDITIONAL_STOPS = int(os.environ.get("MAX_ADDITIONAL_STOPS", "5"))
 BOOKING_UPLOAD_ROOT = os.environ.get("BOOKING_UPLOAD_ROOT", "/var/lib/menwithvan/uploads")
 WALKTHROUGH_UPLOAD_RETENTION_DAYS = int(os.environ.get("WALKTHROUGH_UPLOAD_RETENTION_DAYS", "90"))
-MAX_WALKTHROUGH_UPLOAD_BYTES = int(os.environ.get("MAX_WALKTHROUGH_UPLOAD_BYTES", str(250 * 1024 * 1024)))
-MAX_WALKTHROUGH_FILES = int(os.environ.get("MAX_WALKTHROUGH_FILES", "8"))
+MAX_WALKTHROUGH_UPLOAD_BYTES = int(os.environ.get("MAX_WALKTHROUGH_UPLOAD_BYTES", "0"))
 PACKING_SERVICE_MULTIPLIER = float(os.environ.get("PACKING_SERVICE_MULTIPLIER", "0.40"))
 OVERTIME_MULTIPLIER = float(os.environ.get("OVERTIME_MULTIPLIER", "1.30"))
 GOOGLE_KEY = os.environ.get("GOOGLE_DISTANCE_MATRIX_API_KEY") or os.environ.get("GOOGLE_MAPS_API_KEY")
@@ -260,10 +260,59 @@ def json_response(handler, status, payload, extra_headers=None):
 
 
 class MultipartUpload:
-    def __init__(self, filename, content_type, data):
+    def __init__(self, filename, content_type, data=None, file_path=None):
         self.filename = filename
         self.type = content_type
-        self.file = io.BytesIO(data)
+        self.file_path = file_path
+        self.file = io.BytesIO(data) if data is not None else None
+
+    def cleanup(self):
+        if not self.file_path:
+            return
+        try:
+            os.remove(self.file_path)
+        except FileNotFoundError:
+            pass
+        except Exception as error:
+            print(f"Temporary walkthrough upload cleanup failed for {self.file_path}: {error}")
+
+
+class MultipartBodyStream:
+    def __init__(self, source, length):
+        self.source = source
+        self.remaining = max(int(length or 0), 0)
+        self.buffer = b""
+
+    def unread(self, data):
+        if data:
+            self.buffer = data + self.buffer
+
+    def read(self, size):
+        if size <= 0:
+            return b""
+        chunks = []
+        if self.buffer:
+            chunks.append(self.buffer[:size])
+            self.buffer = self.buffer[size:]
+            size -= len(chunks[-1])
+        if size > 0 and self.remaining > 0:
+            chunk = self.source.read(min(size, self.remaining))
+            self.remaining -= len(chunk)
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    def readline(self, max_bytes=65_536):
+        line = bytearray()
+        while len(line) < max_bytes:
+            chunk = self.read(1)
+            if not chunk:
+                break
+            line.extend(chunk)
+            if chunk == b"\n":
+                break
+        if len(line) >= max_bytes and not line.endswith(b"\n"):
+            raise ValueError("Invalid multipart upload.")
+        return bytes(line)
 
 
 def html_response(handler, status, body, extra_headers=None):
@@ -297,29 +346,121 @@ def read_json(handler, limit=50_000):
     return json.loads(handler.rfile.read(length).decode("utf-8") or "{}")
 
 
+def multipart_boundary(content_type):
+    message = BytesParser(policy=email_default_policy).parsebytes(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
+    boundary = message.get_boundary()
+    if not boundary:
+        raise ValueError("Invalid multipart upload.")
+    return boundary.encode("utf-8")
+
+
+def cleanup_temp_uploads(upload_fields):
+    for field in upload_fields or []:
+        cleanup = getattr(field, "cleanup", None)
+        if callable(cleanup):
+            cleanup()
+
+
+def find_part_boundary(buffer, boundary_marker):
+    marker = b"\r\n" + boundary_marker
+    index = buffer.find(marker)
+    while index >= 0:
+        after = index + len(marker)
+        if len(buffer) < after + 2:
+            return -1
+        if buffer[after : after + 2] in (b"\r\n", b"--"):
+            return index
+        index = buffer.find(marker, index + 1)
+    return -1
+
+
+def stream_part_content(stream, boundary_marker, write):
+    marker_keep = len(boundary_marker) + 8
+    buffer = b""
+    while True:
+        chunk = stream.read(1024 * 1024)
+        if not chunk:
+            raise ValueError("Invalid multipart upload.")
+        buffer += chunk
+        boundary_index = find_part_boundary(buffer, boundary_marker)
+        if boundary_index >= 0:
+            write(buffer[:boundary_index])
+            stream.unread(buffer[boundary_index + 2 :])
+            return
+        if len(buffer) > marker_keep:
+            safe_length = len(buffer) - marker_keep
+            write(buffer[:safe_length])
+            buffer = buffer[safe_length:]
+
+
+def read_part_headers(stream):
+    lines = []
+    while True:
+        line = stream.readline()
+        if not line:
+            raise ValueError("Invalid multipart upload.")
+        if line in (b"\r\n", b"\n"):
+            break
+        lines.append(line)
+    return BytesParser(policy=email_default_policy).parsebytes(b"".join(lines) + b"\r\n")
+
+
 def read_booking_multipart(handler):
     requested_length = int(handler.headers.get("Content-Length", "0"))
-    if requested_length > MAX_WALKTHROUGH_UPLOAD_BYTES:
+    if MAX_WALKTHROUGH_UPLOAD_BYTES > 0 and requested_length > MAX_WALKTHROUGH_UPLOAD_BYTES:
         max_mb = MAX_WALKTHROUGH_UPLOAD_BYTES // (1024 * 1024)
         raise ValueError(f"Walkthrough uploads are limited to {max_mb} MB per booking.")
 
-    content_type = handler.headers.get("Content-Type", "")
-    body = handler.rfile.read(requested_length)
-    message = BytesParser(policy=email_default_policy).parsebytes(
-        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
-    )
+    boundary_marker = b"--" + multipart_boundary(handler.headers.get("Content-Type", ""))
+    stream = MultipartBodyStream(handler.rfile, requested_length)
+    first_boundary = stream.readline().rstrip(b"\r\n")
+    if first_boundary != boundary_marker:
+        raise ValueError("Invalid multipart upload.")
+
     payload_text = "{}"
     upload_fields = []
-    for part in message.iter_parts():
-        name = part.get_param("name", header="content-disposition")
-        if not name:
-            continue
-        filename = part.get_filename()
-        data = part.get_payload(decode=True) or b""
-        if name == "payload" and not filename:
-            payload_text = data.decode(part.get_content_charset() or "utf-8")
-        elif name == "walkthroughMedia" and filename:
-            upload_fields.append(MultipartUpload(filename, part.get_content_type(), data))
+    try:
+        while True:
+            part = read_part_headers(stream)
+            name = part.get_param("name", header="content-disposition")
+            filename = part.get_filename()
+            if name == "walkthroughMedia" and filename:
+                temp_file = tempfile.NamedTemporaryFile(prefix="menwithvan-walkthrough-", suffix=".upload", delete=False)
+                temp_path = temp_file.name
+                try:
+                    with temp_file:
+                        stream_part_content(stream, boundary_marker, temp_file.write)
+                except Exception:
+                    try:
+                        os.remove(temp_path)
+                    except FileNotFoundError:
+                        pass
+                    raise
+                upload_fields.append(MultipartUpload(filename, part.get_content_type(), file_path=temp_path))
+            else:
+                chunks = []
+                total = 0
+
+                def collect(data):
+                    nonlocal total
+                    total += len(data)
+                    if total > 1_000_000:
+                        raise ValueError("Booking details are too large.")
+                    chunks.append(data)
+
+                stream_part_content(stream, boundary_marker, collect)
+                if name == "payload" and not filename:
+                    payload_text = b"".join(chunks).decode(part.get_content_charset() or "utf-8")
+
+            boundary_line = stream.readline().rstrip(b"\r\n")
+            if boundary_line == boundary_marker + b"--":
+                break
+            if boundary_line != boundary_marker:
+                raise ValueError("Invalid multipart upload.")
+    except Exception:
+        cleanup_temp_uploads(upload_fields)
+        raise
+
     payload = json.loads(payload_text or "{}")
     return payload, upload_fields
 
@@ -373,7 +514,7 @@ def media_kind(content_type, filename):
 
 
 def valid_upload_field(field):
-    return bool(getattr(field, "filename", "") and getattr(field, "file", None))
+    return bool(getattr(field, "filename", "") and (getattr(field, "file_path", "") or getattr(field, "file", None)))
 
 
 def human_file_size(size):
@@ -428,8 +569,6 @@ def save_walkthrough_uploads(reference, upload_fields):
     upload_fields = [field for field in (upload_fields or []) if valid_upload_field(field)]
     if not upload_fields:
         return [], []
-    if len(upload_fields) > MAX_WALKTHROUGH_FILES:
-        return [], [f"Upload no more than {MAX_WALKTHROUGH_FILES} walkthrough files."]
 
     os.makedirs(upload_reference_dir(reference), exist_ok=True)
     saved = []
@@ -449,15 +588,26 @@ def save_walkthrough_uploads(reference, upload_fields):
         stored_name = f"{uuid.uuid4().hex}-{original_name}"
         target_path = os.path.join(upload_reference_dir(reference), stored_name)
         size = 0
+        source = None
+        close_source = False
         try:
+            if getattr(field, "file_path", ""):
+                source = open(field.file_path, "rb")
+                close_source = True
+            else:
+                source = field.file
+                try:
+                    source.seek(0)
+                except Exception:
+                    pass
             with open(target_path, "wb") as target:
                 while True:
-                    chunk = field.file.read(1024 * 1024)
+                    chunk = source.read(1024 * 1024)
                     if not chunk:
                         break
                     size += len(chunk)
                     total_size += len(chunk)
-                    if total_size > MAX_WALKTHROUGH_UPLOAD_BYTES:
+                    if MAX_WALKTHROUGH_UPLOAD_BYTES > 0 and total_size > MAX_WALKTHROUGH_UPLOAD_BYTES:
                         raise ValueError("Walkthrough uploads are larger than the server limit.")
                     target.write(chunk)
             if not size:
@@ -472,6 +622,9 @@ def save_walkthrough_uploads(reference, upload_fields):
                 pass
             errors.append(str(error))
             continue
+        finally:
+            if close_source and source:
+                source.close()
 
         saved.append(
             {
@@ -3350,18 +3503,21 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/bookings":
             if rate_limited(self, path):
                 return json_response(self, 429, {"error": "Too many booking attempts. Please wait a moment and try again."})
+            walkthrough_uploads = []
             try:
                 content_type = self.headers.get("Content-Type", "")
                 if content_type.startswith("multipart/form-data"):
                     payload, walkthrough_uploads = read_booking_multipart(self)
                 else:
                     payload = read_json(self)
-                    walkthrough_uploads = []
             except ValueError as error:
                 return json_response(self, 400, {"error": str(error)})
             except Exception:
                 return json_response(self, 400, {"error": "Invalid booking request."})
-            booking, errors = create_booking(payload, walkthrough_uploads)
+            try:
+                booking, errors = create_booking(payload, walkthrough_uploads)
+            finally:
+                cleanup_temp_uploads(walkthrough_uploads)
             if errors:
                 return json_response(self, 400, {"errors": errors})
             return json_response(self, 201, booking)

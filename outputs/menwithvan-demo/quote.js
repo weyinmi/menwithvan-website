@@ -9,7 +9,6 @@ const BOOKING_DRAFT_KEY = "menwithvan.bookingDraft.v1";
 const BOOKING_DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 const MOVERS_PER_LUTON_VAN = 3;
 const STRIPE_JS_URL = "https://js.stripe.com/v3/";
-const MAX_WALKTHROUGH_UPLOAD_BYTES = 250 * 1024 * 1024;
 
 const pounds = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -80,17 +79,6 @@ function cleanList(values) {
   return values.map((value) => String(value || "").trim()).filter(Boolean);
 }
 
-function fileSizeLabel(size) {
-  let value = Number(size || 0);
-  for (const unit of ["B", "KB", "MB", "GB"]) {
-    if (value < 1024 || unit === "GB") {
-      return unit === "B" ? `${value} ${unit}` : `${value.toFixed(1)} ${unit}`;
-    }
-    value /= 1024;
-  }
-  return "0 B";
-}
-
 function selectedWalkthroughFiles(bookingPanel) {
   return Array.from(bookingPanel?.querySelectorAll('input[name="walkthrough-media"]') || [])
     .flatMap((input) => Array.from(input.files || []))
@@ -131,10 +119,9 @@ function updateWalkthroughFileList(bookingPanel) {
     list.textContent = "No walkthrough files selected yet.";
     return;
   }
-  const total = files.reduce((sum, file) => sum + file.size, 0);
   list.innerHTML = `
-    <strong>${files.length} file${files.length === 1 ? "" : "s"} selected · ${fileSizeLabel(total)} total</strong>
-    <ul>${files.map((file) => `<li>${escapeHtml(file.name)} <small>${fileSizeLabel(file.size)}</small></li>`).join("")}</ul>
+    <strong>${files.length} file${files.length === 1 ? "" : "s"} selected</strong>
+    <ul>${files.map((file) => `<li>${escapeHtml(file.name)}</li>`).join("")}</ul>
   `;
 }
 
@@ -143,10 +130,6 @@ function walkthroughUploadError(bookingPanel) {
   const files = selectedWalkthroughFiles(bookingPanel);
   if (!files.length) {
     return "Upload at least one walkthrough video or photo for the pack and move service.";
-  }
-  const total = files.reduce((sum, file) => sum + file.size, 0);
-  if (total > MAX_WALKTHROUGH_UPLOAD_BYTES) {
-    return `Walkthrough uploads are too large. Please keep the total under ${fileSizeLabel(MAX_WALKTHROUGH_UPLOAD_BYTES)}.`;
   }
   return "";
 }
