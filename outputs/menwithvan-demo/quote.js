@@ -1044,10 +1044,6 @@ function renderEmbeddedPayment(result) {
           <span>Stripe secure checkout</span>
           <strong>Complete payment</strong>
         </div>
-        <div class="stripe-payment-due-card">
-          <small>Amount due today</small>
-          <strong>${pounds.format(summary.amountDue)}</strong>
-        </div>
         <p class="embedded-payment-status" data-embedded-payment-status>Preparing secure payment form...</p>
         <div id="embedded-checkout" class="embedded-checkout-frame"></div>
       </section>
