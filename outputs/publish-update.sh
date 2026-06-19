@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MESSAGE="${1:-Update Men With a Van website}"
+MESSAGE="${1:-Update Men With Van website}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GITHUB_KEY="${GITHUB_KEY:-$HOME/.ssh/github_weyinmi}"
 BUNDLED_PYTHON="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"

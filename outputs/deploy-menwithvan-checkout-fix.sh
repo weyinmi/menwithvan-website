@@ -24,7 +24,7 @@ if [ -f "$KEY_PATH" ]; then
   SSH_ARGS+=(-i "$KEY_PATH" -o IdentitiesOnly=yes)
 fi
 
-echo "Uploading Men With a Van update to $HOST..."
+echo "Uploading Men With Van update to $HOST..."
 REMOTE_PACKAGE="$(ssh "${SSH_ARGS[@]}" "$HOST" "mktemp /tmp/menwithvan-deploy.XXXXXX.tgz")"
 ssh "${SSH_ARGS[@]}" "$HOST" "cat > '$REMOTE_PACKAGE'" < "$PACKAGE_DIR/menwithvan-checkout-fix.tgz"
 

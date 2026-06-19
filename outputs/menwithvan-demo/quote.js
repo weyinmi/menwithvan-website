@@ -1037,7 +1037,7 @@ function renderEmbeddedPayment(result) {
           <span>${pounds.format(summary.selectedRate)} per hour, billed every 30 minutes at ${pounds.format(summary.halfHourRate)}, payable on completion by cash, card or bank transfer.</span>
         </div>
         <button type="button" class="payment-edit-button" data-back-to-booking>Change booking or payment choice</button>
-        <p class="secure-payment-note">Card details are entered directly into Stripe. Men With a Van does not see or store card numbers.</p>
+        <p class="secure-payment-note">Card details are entered directly into Stripe. Men With Van does not see or store card numbers.</p>
       </section>
       <section class="embedded-payment-form-card" aria-label="Stripe secure payment form">
         <div class="embedded-payment-form-head">
