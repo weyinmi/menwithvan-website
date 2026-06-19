@@ -7,6 +7,7 @@ import hmac
 import io
 import json
 import math
+import mimetypes
 import os
 import re
 import smtplib
@@ -18,8 +19,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from email.parser import BytesParser
+from email.policy import default as email_default_policy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -40,6 +43,10 @@ MAX_BOOKABLE_MOVERS = MAX_VANS * MOVERS_PER_LUTON_VAN
 BOOKING_HOLD_MINUTES = int(os.environ.get("BOOKING_HOLD_MINUTES", "45"))
 BOOKING_DRAFT_DAYS = int(os.environ.get("BOOKING_DRAFT_DAYS", "14"))
 MAX_ADDITIONAL_STOPS = int(os.environ.get("MAX_ADDITIONAL_STOPS", "5"))
+BOOKING_UPLOAD_ROOT = os.environ.get("BOOKING_UPLOAD_ROOT", "/var/lib/menwithvan/uploads")
+WALKTHROUGH_UPLOAD_RETENTION_DAYS = int(os.environ.get("WALKTHROUGH_UPLOAD_RETENTION_DAYS", "90"))
+MAX_WALKTHROUGH_UPLOAD_BYTES = int(os.environ.get("MAX_WALKTHROUGH_UPLOAD_BYTES", str(250 * 1024 * 1024)))
+MAX_WALKTHROUGH_FILES = int(os.environ.get("MAX_WALKTHROUGH_FILES", "8"))
 PACKING_SERVICE_MULTIPLIER = float(os.environ.get("PACKING_SERVICE_MULTIPLIER", "0.40"))
 OVERTIME_MULTIPLIER = float(os.environ.get("OVERTIME_MULTIPLIER", "1.30"))
 GOOGLE_KEY = os.environ.get("GOOGLE_DISTANCE_MATRIX_API_KEY") or os.environ.get("GOOGLE_MAPS_API_KEY")
@@ -84,6 +91,8 @@ RATE_LIMITS = {
 rate_limit_lock = threading.Lock()
 rate_limit_buckets = {}
 booking_capacity_lock = threading.Lock()
+upload_cleanup_lock = threading.Lock()
+last_upload_cleanup = 0
 
 ONE_VAN_RATES = {
     1: 50.0,
@@ -132,6 +141,9 @@ PAYMENT_STATUS_LABELS = {
     "refunded": "Refunded",
     "failed": "Failed",
 }
+
+IMAGE_EXTENSIONS = {".bmp", ".gif", ".heic", ".heif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+VIDEO_EXTENSIONS = {".3g2", ".3gp", ".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm", ".wmv"}
 
 # Approximate point-in-zone boundary based on the official TfL Congestion Charge
 # zone map. Business rule: only pickup or drop-off inside the zone triggers the
@@ -247,6 +259,13 @@ def json_response(handler, status, payload, extra_headers=None):
     handler.wfile.write(body)
 
 
+class MultipartUpload:
+    def __init__(self, filename, content_type, data):
+        self.filename = filename
+        self.type = content_type
+        self.file = io.BytesIO(data)
+
+
 def html_response(handler, status, body, extra_headers=None):
     encoded = body.encode("utf-8")
     handler.send_response(status)
@@ -278,6 +297,33 @@ def read_json(handler, limit=50_000):
     return json.loads(handler.rfile.read(length).decode("utf-8") or "{}")
 
 
+def read_booking_multipart(handler):
+    requested_length = int(handler.headers.get("Content-Length", "0"))
+    if requested_length > MAX_WALKTHROUGH_UPLOAD_BYTES:
+        max_mb = MAX_WALKTHROUGH_UPLOAD_BYTES // (1024 * 1024)
+        raise ValueError(f"Walkthrough uploads are limited to {max_mb} MB per booking.")
+
+    content_type = handler.headers.get("Content-Type", "")
+    body = handler.rfile.read(requested_length)
+    message = BytesParser(policy=email_default_policy).parsebytes(
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
+    )
+    payload_text = "{}"
+    upload_fields = []
+    for part in message.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        filename = part.get_filename()
+        data = part.get_payload(decode=True) or b""
+        if name == "payload" and not filename:
+            payload_text = data.decode(part.get_content_charset() or "utf-8")
+        elif name == "walkthroughMedia" and filename:
+            upload_fields.append(MultipartUpload(filename, part.get_content_type(), data))
+    payload = json.loads(payload_text or "{}")
+    return payload, upload_fields
+
+
 def read_body(handler, limit=1_000_000):
     requested_length = int(handler.headers.get("Content-Length", "0"))
     if requested_length > limit:
@@ -290,9 +336,208 @@ def now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def iso_from_timestamp(timestamp):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(timestamp))
+
+
+def timestamp_from_iso(value):
+    try:
+        return datetime.strptime(str(value or ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except Exception:
+        return 0
+
+
 def compact(value, limit=500):
     value = re.sub(r"\s+", " ", str(value or "").strip())
     return value[:limit]
+
+
+def safe_upload_name(value):
+    name = os.path.basename(str(value or "walkthrough-file").replace("\x00", ""))
+    stem, ext = os.path.splitext(name)
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-_") or "walkthrough-file"
+    ext = re.sub(r"[^A-Za-z0-9.]+", "", ext.lower())
+    return compact(stem, 80) + compact(ext, 16)
+
+
+def media_kind(content_type, filename):
+    content_type = compact(content_type, 120).lower()
+    extension = os.path.splitext(str(filename or "").lower())[1]
+    if content_type.startswith("image/") or content_type.startswith("video/"):
+        return "video" if content_type.startswith("video/") else "image"
+    if extension in IMAGE_EXTENSIONS:
+        return "image"
+    if extension in VIDEO_EXTENSIONS:
+        return "video"
+    return ""
+
+
+def valid_upload_field(field):
+    return bool(getattr(field, "filename", "") and getattr(field, "file", None))
+
+
+def human_file_size(size):
+    try:
+        size = int(size or 0)
+    except Exception:
+        size = 0
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{size} {unit}"
+        size /= 1024
+    return "0 B"
+
+
+def upload_reference_dir(reference):
+    safe_reference = re.sub(r"[^A-Za-z0-9._-]+", "-", str(reference or "")).strip(".-")
+    return os.path.join(BOOKING_UPLOAD_ROOT, safe_reference)
+
+
+def cleanup_expired_walkthrough_uploads(force=False):
+    global last_upload_cleanup
+    now = time.time()
+    if not force and now - last_upload_cleanup < 3600:
+        return
+    if not os.path.isdir(BOOKING_UPLOAD_ROOT):
+        last_upload_cleanup = now
+        return
+    with upload_cleanup_lock:
+        if not force and now - last_upload_cleanup < 3600:
+            return
+        cutoff = now - (WALKTHROUGH_UPLOAD_RETENTION_DAYS * 24 * 60 * 60)
+        for root, dirs, files in os.walk(BOOKING_UPLOAD_ROOT, topdown=False):
+            for filename in files:
+                path = os.path.join(root, filename)
+                try:
+                    if os.path.getmtime(path) < cutoff:
+                        os.remove(path)
+                except FileNotFoundError:
+                    pass
+                except Exception as error:
+                    print(f"Walkthrough cleanup failed for {path}: {error}")
+            for dirname in dirs:
+                path = os.path.join(root, dirname)
+                try:
+                    os.rmdir(path)
+                except OSError:
+                    pass
+        last_upload_cleanup = now
+
+
+def save_walkthrough_uploads(reference, upload_fields):
+    upload_fields = [field for field in (upload_fields or []) if valid_upload_field(field)]
+    if not upload_fields:
+        return [], []
+    if len(upload_fields) > MAX_WALKTHROUGH_FILES:
+        return [], [f"Upload no more than {MAX_WALKTHROUGH_FILES} walkthrough files."]
+
+    os.makedirs(upload_reference_dir(reference), exist_ok=True)
+    saved = []
+    errors = []
+    total_size = 0
+    uploaded_at = now_iso()
+    expires_at = iso_from_timestamp(time.time() + (WALKTHROUGH_UPLOAD_RETENTION_DAYS * 24 * 60 * 60))
+
+    for field in upload_fields:
+        original_name = safe_upload_name(field.filename)
+        content_type = compact(getattr(field, "type", "") or mimetypes.guess_type(original_name)[0] or "application/octet-stream", 120)
+        kind = media_kind(content_type, original_name)
+        if not kind:
+            errors.append(f"{original_name} must be an image or video file.")
+            continue
+
+        stored_name = f"{uuid.uuid4().hex}-{original_name}"
+        target_path = os.path.join(upload_reference_dir(reference), stored_name)
+        size = 0
+        try:
+            with open(target_path, "wb") as target:
+                while True:
+                    chunk = field.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    total_size += len(chunk)
+                    if total_size > MAX_WALKTHROUGH_UPLOAD_BYTES:
+                        raise ValueError("Walkthrough uploads are larger than the server limit.")
+                    target.write(chunk)
+            if not size:
+                os.remove(target_path)
+                errors.append(f"{original_name} is empty.")
+                continue
+        except Exception as error:
+            try:
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+            except Exception:
+                pass
+            errors.append(str(error))
+            continue
+
+        saved.append(
+            {
+                "storedName": stored_name,
+                "originalName": original_name,
+                "contentType": content_type,
+                "kind": kind,
+                "size": size,
+                "uploadedAt": uploaded_at,
+                "expiresAt": expires_at,
+            }
+        )
+
+    if errors:
+        for item in saved:
+            try:
+                os.remove(os.path.join(upload_reference_dir(reference), item["storedName"]))
+            except Exception:
+                pass
+        return [], errors
+    return saved, []
+
+
+def parse_walkthrough_uploads(row):
+    try:
+        uploads = json.loads(row["walkthrough_uploads"] or "[]")
+    except Exception:
+        uploads = []
+    return [item for item in uploads if isinstance(item, dict)]
+
+
+def walkthrough_upload_url(reference, item):
+    stored_name = urllib.parse.quote(str(item.get("storedName") or ""))
+    return f"/admin/bookings/{urllib.parse.quote(reference)}/walkthrough/{stored_name}"
+
+
+def walkthrough_uploads_html(row):
+    uploads = parse_walkthrough_uploads(row)
+    if not uploads:
+        return "<p><small>No walkthrough files uploaded for this booking.</small></p>"
+
+    now = time.time()
+    items = []
+    for item in uploads:
+        original = item.get("originalName") or "Walkthrough file"
+        expires_at = item.get("expiresAt") or ""
+        expired = timestamp_from_iso(expires_at) and timestamp_from_iso(expires_at) < now
+        stored_path = os.path.join(upload_reference_dir(row["reference"]), item.get("storedName") or "")
+        if expired or not os.path.exists(stored_path):
+            action = '<span class="badge warn">Expired / unavailable</span>'
+        else:
+            action = f'<a class="button-link button-secondary" href="{html.escape(walkthrough_upload_url(row["reference"], item))}" target="_blank" rel="noopener">Open file</a>'
+        kind = item.get("kind") or "media"
+        details = f"{kind} · {human_file_size(item.get('size'))}"
+        if expires_at:
+            details += f" · expires {expires_at[:10]}"
+        items.append(
+            f"""
+            <li>
+              <strong>{html.escape(original)}</strong><br>
+              <small>{html.escape(details)}</small><br>
+              {action}
+            </li>
+            """
+        )
+    return f'<ul class="walkthrough-upload-list">{"".join(items)}</ul>'
 
 
 def max_movers_for_vans(vans):
@@ -329,6 +574,7 @@ def connect_db():
 
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    os.makedirs(BOOKING_UPLOAD_ROOT, exist_ok=True)
     with connect_db() as db:
         db.execute(
             """
@@ -379,6 +625,7 @@ def init_db():
                 last_admin_update_at TEXT,
                 completed_at TEXT,
                 cancelled_at TEXT,
+                walkthrough_uploads TEXT,
                 quote_json TEXT NOT NULL
             )
             """
@@ -402,6 +649,7 @@ def init_db():
             "last_admin_update_at": "TEXT",
             "completed_at": "TEXT",
             "cancelled_at": "TEXT",
+            "walkthrough_uploads": "TEXT",
         }
         for column, column_type in migrations.items():
             if column not in existing:
@@ -454,6 +702,7 @@ def init_db():
             """
         )
         db.execute("CREATE INDEX IF NOT EXISTS idx_booking_drafts_expires ON booking_drafts(expires_at)")
+    cleanup_expired_walkthrough_uploads(force=True)
 
 
 def new_reference():
@@ -1218,6 +1467,12 @@ def render_confirmation_email(row):
     overtime_rate = quote.get("overtime", {}).get("hourlyRateIncVat", 0)
     overtime_half_hour = quote.get("overtime", {}).get("halfHourRateIncVat", float(overtime_rate or 0) / 2)
     pack_and_move = bool(quote.get("inputs", {}).get("packAndMove"))
+    walkthrough_count = len(parse_walkthrough_uploads(row))
+    walkthrough_text = (
+        f"{walkthrough_count} walkthrough file{'s' if walkthrough_count != 1 else ''} uploaded for office review."
+        if walkthrough_count
+        else "No walkthrough files uploaded."
+    )
     packing_text = (
         "Included - we bring brand new complimentary packing materials such as wardrobe boxes, different size boxes, bubble wrap, tape and paper. We pack everything that needs packing, then move it. The materials are yours to keep, and packing time is included within the total booked hours."
         if pack_and_move
@@ -1246,6 +1501,7 @@ Move summary:
 - {hours_text}
 - Route distance: {row['distance_miles']:g} miles
 - Package and move service: {packing_text}
+- Walkthrough uploads: {walkthrough_text}
 - Furniture dismantling/reassembly: Included as standard
 - Pricing basis: No hidden item-count charge. The quote is based on movers, booked hours, distance, stairs/floors, congestion zone and VAT.
 
@@ -1292,6 +1548,7 @@ Men With Van
   <p><strong>Additional stops:</strong></p><ul>{html_extra}</ul>
   <p><strong>Team:</strong> {html.escape(vans_text)}, {html.escape(movers_text)}, {html.escape(hours_text)}</p>
   <p><strong>Package and move service:</strong> {html.escape(packing_text)}</p>
+  <p><strong>Walkthrough uploads:</strong> {html.escape(walkthrough_text)}</p>
   <p><strong>Furniture dismantling/reassembly:</strong> Included as standard.</p>
   <p><strong>Pricing basis:</strong> No hidden item-count charge. The quote is based on movers, booked hours, distance, stairs/floors, congestion zone and VAT.</p>
   <h2>Price</h2>
@@ -1844,7 +2101,7 @@ def build_quote(payload):
     return quote, None
 
 
-def create_booking(payload):
+def create_booking(payload, walkthrough_upload_fields=None):
     quote_inputs = payload.get("quoteInputs") or payload.get("quote") or {}
     customer = payload.get("customer") or {}
     booking = payload.get("booking") or {}
@@ -1892,6 +2149,10 @@ def create_booking(payload):
         errors.append("Choose deposit or full payment.")
     if not terms_accepted:
         errors.append("Terms must be accepted before booking.")
+    upload_required = bool(quote.get("inputs", {}).get("packAndMove"))
+    has_uploads = any(valid_upload_field(field) for field in (walkthrough_upload_fields or []))
+    if upload_required and not has_uploads:
+        errors.append("Upload at least one walkthrough video or photo for the pack and move service.")
     if errors:
         return None, errors
 
@@ -1901,6 +2162,7 @@ def create_booking(payload):
     inputs = quote["inputs"]
     totals = quote["totals"]
     balance_amount = totals["balanceAfterDeposit"] if payment_option == "deposit" else 0
+    walkthrough_uploads = []
 
     with booking_capacity_lock:
         available, availability_error = slot_available(
@@ -1913,6 +2175,10 @@ def create_booking(payload):
         if not available:
             return None, [availability_error]
 
+        walkthrough_uploads, upload_errors = save_walkthrough_uploads(reference, walkthrough_upload_fields or [])
+        if upload_errors:
+            return None, upload_errors
+
         with connect_db() as db:
             db.execute(
                 """
@@ -1923,8 +2189,9 @@ def create_booking(payload):
                     pickup_postcode, delivery_postcode, pickup_address, delivery_address,
                     luton_vans, movers, estimated_hours, pickup_stairs, delivery_stairs,
                     distance_miles, subtotal_ex_vat, vat, total_inc_vat, deposit_amount,
-                    balance_amount, item_notes, access_notes, additional_addresses, calendar_token, quote_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    balance_amount, item_notes, access_notes, additional_addresses, calendar_token,
+                    walkthrough_uploads, quote_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     reference,
@@ -1963,6 +2230,7 @@ def create_booking(payload):
                         ensure_ascii=False,
                     ),
                     calendar_token,
+                    json.dumps(walkthrough_uploads, ensure_ascii=False),
                     json.dumps(quote, ensure_ascii=False),
                 ),
             )
@@ -1978,6 +2246,7 @@ def create_booking(payload):
                     "vans": inputs["lutonVans"],
                     "movers": inputs["movers"],
                     "hours": inputs["hours"],
+                    "walkthroughUploads": len(walkthrough_uploads),
                 },
                 db=db,
             )
@@ -1993,6 +2262,7 @@ def create_booking(payload):
             "moveTime": move_time,
             "pickupAddress": pickup_address,
             "deliveryAddress": delivery_address,
+            "walkthroughUploads": len(walkthrough_uploads),
         },
         "payment": {
             "provider": "stripe",
@@ -2333,9 +2603,12 @@ def admin_styles():
       .ops-form .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
       .quote-lines { display: grid; gap: 8px; padding: 0; list-style: none; }
       .quote-lines li { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+      .walkthrough-upload-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0; list-style: none; }
+      .walkthrough-upload-list li { padding: 12px; background: #f8fbfd; border: 1px solid var(--line); border-radius: 8px; }
+      .walkthrough-upload-list .button-link { margin-top: 8px; }
       .empty { padding: 24px; color: var(--muted); text-align: center; }
       @media (max-width: 980px) {
-        .summary-grid, .filter-grid, .detail-grid { grid-template-columns: 1fr; }
+        .summary-grid, .filter-grid, .detail-grid, .walkthrough-upload-list { grid-template-columns: 1fr; }
         .detail-list div { grid-template-columns: 1fr; gap: 2px; }
       }
       @media print {
@@ -2601,6 +2874,7 @@ def render_admin(notice="", csrf_token="", filters=None, return_to="/admin"):
         overtime_rate = float(quote.get("overtime", {}).get("hourlyRateIncVat") or 0)
         overtime_half_hour = float(quote.get("overtime", {}).get("halfHourRateIncVat") or overtime_rate / 2)
         additional_addresses = parse_additional_addresses(row)
+        walkthrough_count = len(parse_walkthrough_uploads(row))
         extra_stop_text = ""
         if additional_addresses:
             extra_stop_text = "<br><small>Extra stops: " + html.escape(
@@ -2610,6 +2884,7 @@ def render_admin(notice="", csrf_token="", filters=None, return_to="/admin"):
                     if isinstance(item, dict)
                 )
             ) + "</small>"
+        walkthrough_text = f"<br><small>Walkthrough files: {walkthrough_count}</small>" if walkthrough_count else ""
         customer_email_state = row["confirmation_email_sent_at"] or "Not sent"
         office_email_state = row["office_email_sent_at"] or "Not sent"
         email_badge_class = "ok" if row["confirmation_email_sent_at"] and row["office_email_sent_at"] else "warn"
@@ -2627,7 +2902,7 @@ def render_admin(notice="", csrf_token="", filters=None, return_to="/admin"):
               <td><a href="/admin/bookings/{reference_url}"><strong>{reference}</strong></a><br><small>{html.escape(row['created_at'])}</small></td>
               <td>{html.escape(row['customer_name'])}<br><small>{html.escape(row['customer_email'])}<br>{html.escape(row['customer_phone'])}</small></td>
               <td>{html.escape(row['move_date'] or '')}<br><small>{html.escape(row['move_time'] or '')}</small></td>
-              <td>{html.escape(row['pickup_postcode'] or '')} → {html.escape(row['delivery_postcode'] or '')}<br><small>{row['luton_vans']} vans, {row['movers']} men, {row['estimated_hours']:g} hrs<br>{html.escape(assigned_text)}</small>{extra_stop_text}</td>
+              <td>{html.escape(row['pickup_postcode'] or '')} → {html.escape(row['delivery_postcode'] or '')}<br><small>{row['luton_vans']} vans, {row['movers']} men, {row['estimated_hours']:g} hrs<br>{html.escape(assigned_text)}</small>{extra_stop_text}{walkthrough_text}</td>
               <td>{total}<br><small>Due now {due_now}<br>Balance {balance}<br>Overtime £{overtime_rate:.2f}/hr<br>£{overtime_half_hour:.2f}/30 mins<br>{html.escape(stripe_detail)}</small>{paid_at}</td>
               <td>
                 <span class="badge {status_badge_class(row['status'])}">{html.escape(status_label(row['status']))}</span>
@@ -2732,6 +3007,7 @@ def render_booking_detail(reference, notice="", csrf_token=""):
         else ""
     )
     due_now = row["deposit_amount"] if row["payment_option"] == "deposit" else row["total_inc_vat"]
+    walkthrough_html = walkthrough_uploads_html(row)
     event_rows = []
     for event in booking_events(row["reference"]):
         event_rows.append(
@@ -2793,6 +3069,11 @@ def render_booking_detail(reference, notice="", csrf_token=""):
               </form>
             </div>
           </aside>
+        </section>
+        <section class="detail-card" style="margin-top:18px">
+          <h2>Pack and move walkthrough</h2>
+          <p><small>Customer-uploaded photos or videos for planning packaging materials. Files expire automatically after {WALKTHROUGH_UPLOAD_RETENTION_DAYS} days.</small></p>
+          {walkthrough_html}
         </section>
         <section class="detail-card" style="margin-top:18px">
           <h2>Edit customer and move details</h2>
@@ -2863,6 +3144,7 @@ def bookings_csv():
         "estimated_hours", "distance_miles", "total_inc_vat", "deposit_amount",
         "balance_amount", "additional_addresses", "stripe_checkout_session_id", "stripe_payment_intent_id",
         "stripe_payment_amount", "stripe_payment_currency", "paid_at",
+        "walkthrough_uploads",
         "confirmation_email_sent_at", "office_email_sent_at",
         "assigned_vehicle_count", "assigned_mover_count", "assigned_team",
         "admin_notes", "last_admin_update_at", "completed_at", "cancelled_at"
@@ -2871,6 +3153,52 @@ def bookings_csv():
     for row in rows:
         writer.writerow([csv_safe(row[col]) for col in columns])
     return output.getvalue().encode("utf-8")
+
+
+def serve_walkthrough_upload(handler, reference, stored_name):
+    reference = compact(urllib.parse.unquote(reference), 80)
+    stored_name = os.path.basename(urllib.parse.unquote(stored_name))
+    if not reference or not stored_name:
+        return json_response(handler, 404, {"error": "Walkthrough file not found."})
+
+    with connect_db() as db:
+        row = db.execute("SELECT reference, walkthrough_uploads FROM bookings WHERE reference = ?", (reference,)).fetchone()
+    if not row:
+        return json_response(handler, 404, {"error": "Booking not found."})
+
+    match = None
+    for item in parse_walkthrough_uploads(row):
+        if hmac.compare_digest(str(item.get("storedName") or ""), stored_name):
+            match = item
+            break
+    if not match:
+        return json_response(handler, 404, {"error": "Walkthrough file not found."})
+
+    expires_at = timestamp_from_iso(match.get("expiresAt"))
+    if expires_at and expires_at < time.time():
+        cleanup_expired_walkthrough_uploads(force=True)
+        return json_response(handler, 410, {"error": "Walkthrough file has expired."})
+
+    path = os.path.join(upload_reference_dir(reference), stored_name)
+    if not os.path.isfile(path):
+        return json_response(handler, 404, {"error": "Walkthrough file not found."})
+
+    content_type = compact(match.get("contentType"), 120) or mimetypes.guess_type(match.get("originalName") or stored_name)[0] or "application/octet-stream"
+    original_name = safe_upload_name(match.get("originalName") or stored_name)
+    size = os.path.getsize(path)
+    handler.send_response(200)
+    send_security_headers(handler)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Disposition", f'inline; filename="{original_name}"')
+    handler.send_header("Cache-Control", "private, no-store")
+    handler.send_header("Content-Length", str(size))
+    handler.end_headers()
+    with open(path, "rb") as file:
+        while True:
+            chunk = file.read(1024 * 1024)
+            if not chunk:
+                break
+            handler.wfile.write(chunk)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2882,6 +3210,7 @@ class Handler(BaseHTTPRequestHandler):
         print("%s - %s" % (self.address_string(), message))
 
     def do_GET(self):
+        cleanup_expired_walkthrough_uploads()
         path = urllib.parse.urlparse(self.path).path
         if path == "/health":
             return json_response(self, 200, {"ok": True})
@@ -2961,6 +3290,11 @@ class Handler(BaseHTTPRequestHandler):
                 render_manifest(date_text),
                 {"Set-Cookie": admin_csrf_cookie_header(csrf_token)},
             )
+        upload_match = re.match(r"^/admin/bookings/([^/]+)/walkthrough/([^/]+)$", path)
+        if upload_match:
+            if not require_admin(self):
+                return
+            return serve_walkthrough_upload(self, upload_match.group(1), upload_match.group(2))
         detail_match = re.match(r"^/admin/bookings/([^/]+)$", path)
         if detail_match:
             if not require_admin(self):
@@ -2997,6 +3331,7 @@ class Handler(BaseHTTPRequestHandler):
         return json_response(self, 404, {"error": "Not found"})
 
     def do_POST(self):
+        cleanup_expired_walkthrough_uploads()
         path = urllib.parse.urlparse(self.path).path
 
         if path in ("/api/quote", "/api/quotes"):
@@ -3016,10 +3351,17 @@ class Handler(BaseHTTPRequestHandler):
             if rate_limited(self, path):
                 return json_response(self, 429, {"error": "Too many booking attempts. Please wait a moment and try again."})
             try:
-                payload = read_json(self)
+                content_type = self.headers.get("Content-Type", "")
+                if content_type.startswith("multipart/form-data"):
+                    payload, walkthrough_uploads = read_booking_multipart(self)
+                else:
+                    payload = read_json(self)
+                    walkthrough_uploads = []
+            except ValueError as error:
+                return json_response(self, 400, {"error": str(error)})
             except Exception:
-                return json_response(self, 400, {"error": "Invalid JSON."})
-            booking, errors = create_booking(payload)
+                return json_response(self, 400, {"error": "Invalid booking request."})
+            booking, errors = create_booking(payload, walkthrough_uploads)
             if errors:
                 return json_response(self, 400, {"errors": errors})
             return json_response(self, 201, booking)

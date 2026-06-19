@@ -9,6 +9,7 @@ const BOOKING_DRAFT_KEY = "menwithvan.bookingDraft.v1";
 const BOOKING_DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 const MOVERS_PER_LUTON_VAN = 3;
 const STRIPE_JS_URL = "https://js.stripe.com/v3/";
+const MAX_WALKTHROUGH_UPLOAD_BYTES = 250 * 1024 * 1024;
 
 const pounds = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -77,6 +78,77 @@ function firstNumber(value) {
 
 function cleanList(values) {
   return values.map((value) => String(value || "").trim()).filter(Boolean);
+}
+
+function fileSizeLabel(size) {
+  let value = Number(size || 0);
+  for (const unit of ["B", "KB", "MB", "GB"]) {
+    if (value < 1024 || unit === "GB") {
+      return unit === "B" ? `${value} ${unit}` : `${value.toFixed(1)} ${unit}`;
+    }
+    value /= 1024;
+  }
+  return "0 B";
+}
+
+function selectedWalkthroughFiles(bookingPanel) {
+  return Array.from(bookingPanel?.querySelectorAll('input[name="walkthrough-media"]') || [])
+    .flatMap((input) => Array.from(input.files || []))
+    .filter((file) => file && file.size > 0);
+}
+
+function walkthroughUploadSection() {
+  return `
+      <section class="booking-section walkthrough-section" data-walkthrough-section>
+        <div class="booking-section-head">
+          <span>Pack and move walkthrough</span>
+          <h4>Upload a quick video or photos of what needs packing.</h4>
+          <p>This helps the team bring the right complimentary packing materials, so the job can be prepared properly before arrival.</p>
+        </div>
+        <div class="walkthrough-upload-card">
+          <label class="walkthrough-dropzone">
+            <strong>Upload walkthrough files</strong>
+            <span>Choose videos or photos from your phone, tablet or computer.</span>
+            <input type="file" name="walkthrough-media" accept="video/*,image/*" multiple>
+          </label>
+          <label class="walkthrough-capture">
+            <strong>Record or take photos now</strong>
+            <span>On mobile, this can open the camera for a quick walkthrough.</span>
+            <input type="file" name="walkthrough-media" accept="video/*,image/*" capture="environment">
+          </label>
+          <p class="walkthrough-upload-note">Upload at least one walkthrough video or photo for the pack and move service. Files are kept securely with the booking and automatically expire after 3 months.</p>
+          <div class="walkthrough-file-list" data-walkthrough-file-list>No walkthrough files selected yet.</div>
+        </div>
+      </section>
+  `;
+}
+
+function updateWalkthroughFileList(bookingPanel) {
+  const list = bookingPanel?.querySelector("[data-walkthrough-file-list]");
+  if (!list) return;
+  const files = selectedWalkthroughFiles(bookingPanel);
+  if (!files.length) {
+    list.textContent = "No walkthrough files selected yet.";
+    return;
+  }
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  list.innerHTML = `
+    <strong>${files.length} file${files.length === 1 ? "" : "s"} selected · ${fileSizeLabel(total)} total</strong>
+    <ul>${files.map((file) => `<li>${escapeHtml(file.name)} <small>${fileSizeLabel(file.size)}</small></li>`).join("")}</ul>
+  `;
+}
+
+function walkthroughUploadError(bookingPanel) {
+  if (!lastQuotePayload?.packAndMove) return "";
+  const files = selectedWalkthroughFiles(bookingPanel);
+  if (!files.length) {
+    return "Upload at least one walkthrough video or photo for the pack and move service.";
+  }
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  if (total > MAX_WALKTHROUGH_UPLOAD_BYTES) {
+    return `Walkthrough uploads are too large. Please keep the total under ${fileSizeLabel(MAX_WALKTHROUGH_UPLOAD_BYTES)}.`;
+  }
+  return "";
 }
 
 function escapeHtml(value) {
@@ -550,6 +622,15 @@ function bookingSubmissionPayload(bookingPanel) {
   };
 }
 
+function bookingSubmissionFormData(bookingPanel, payload) {
+  const body = new FormData();
+  body.append("payload", JSON.stringify(payload));
+  selectedWalkthroughFiles(bookingPanel).forEach((file) => {
+    body.append("walkthroughMedia", file, file.name);
+  });
+  return body;
+}
+
 function saveBookingFormDraft(bookingPanel) {
   if (!bookingPanel) return;
   saveDraft({ booking: bookingFormDraft(bookingPanel) });
@@ -891,6 +972,8 @@ function renderQuote(quote, payload, options = {}) {
           ${extraAddressFields}
         </div>
       </section>
+
+      ${payload.packAndMove ? walkthroughUploadSection() : ""}
 
       <section class="booking-section payment-section">
         <div class="booking-section-head">
@@ -1383,6 +1466,9 @@ if (quoteForm && quoteResult) {
       if (event.target.matches('input[name="move-time"]')) {
         setAvailabilityNote(bookingPanel, "");
       }
+      if (event.target.matches('input[name="walkthrough-media"]')) {
+        updateWalkthroughFileList(bookingPanel);
+      }
       updateScheduleSummary(bookingPanel);
       saveBookingFormDraft(bookingPanel);
     }
@@ -1391,6 +1477,9 @@ if (quoteForm && quoteResult) {
   quoteResult.addEventListener("change", (event) => {
     const bookingPanel = event.target.closest(".booking-panel");
     if (bookingPanel) {
+      if (event.target.matches('input[name="walkthrough-media"]')) {
+        updateWalkthroughFileList(bookingPanel);
+      }
       updateScheduleSummary(bookingPanel);
       saveBookingFormDraft(bookingPanel);
       if (paymentRefreshApplies(event.target)) schedulePaymentRefresh(bookingPanel);
@@ -1457,17 +1546,38 @@ if (quoteForm && quoteResult) {
       bookingPanel.querySelector("[data-time-field]")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
+    const walkthroughError = walkthroughUploadError(bookingPanel);
+    if (walkthroughError) {
+      setBookingSubmitState(bookingPanel, walkthroughError, "warn");
+      bookingPanel.querySelector("[data-walkthrough-section]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
 
     const payload = bookingSubmissionPayload(bookingPanel);
+    const hasWalkthroughFiles = selectedWalkthroughFiles(bookingPanel).length > 0;
 
-    setBookingSubmitState(bookingPanel, "Saving your move details securely and preparing the payment section...", "loading");
+    setBookingSubmitState(
+      bookingPanel,
+      hasWalkthroughFiles
+        ? "Uploading the walkthrough files, saving your move details and preparing the payment section..."
+        : "Saving your move details securely and preparing the payment section...",
+      "loading"
+    );
     if (submitButton) submitButton.disabled = true;
 
     try {
+      const requestOptions = hasWalkthroughFiles
+        ? {
+            method: "POST",
+            body: bookingSubmissionFormData(bookingPanel, payload),
+          }
+        : {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          };
       const response = await fetch("/api/bookings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        ...requestOptions,
       });
       const result = await response.json();
       if (!response.ok) {

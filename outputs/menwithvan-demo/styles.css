@@ -1418,6 +1418,78 @@ textarea:focus {
   background: #fbfdff;
 }
 
+.walkthrough-section {
+  background:
+    linear-gradient(135deg, rgba(255, 246, 216, 0.72), rgba(255, 255, 255, 0.96) 48%, rgba(238, 247, 250, 0.96)),
+    #fff;
+  border-color: rgba(240, 180, 41, 0.34);
+}
+
+.walkthrough-upload-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.walkthrough-dropzone,
+.walkthrough-capture {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px;
+  color: var(--brand-dark);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px dashed rgba(11, 93, 122, 0.34);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(13, 32, 51, 0.06);
+  cursor: pointer;
+}
+
+.walkthrough-dropzone strong,
+.walkthrough-capture strong {
+  font-size: 16px;
+}
+
+.walkthrough-dropzone span,
+.walkthrough-capture span,
+.walkthrough-upload-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.walkthrough-dropzone input,
+.walkthrough-capture input {
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8fbfd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.walkthrough-upload-note,
+.walkthrough-file-list {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.walkthrough-file-list {
+  padding: 12px 14px;
+  color: var(--text);
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid rgba(11, 93, 122, 0.14);
+  border-radius: 8px;
+}
+
+.walkthrough-file-list ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.walkthrough-file-list li + li {
+  margin-top: 3px;
+}
+
 .booking-panel button {
   width: 100%;
   margin-top: 16px;
@@ -2272,6 +2344,7 @@ textarea:focus {
   .date-time-grid,
   .schedule-board,
   .booking-hero-card,
+  .walkthrough-upload-card,
   .booking-progress-strip {
     grid-template-columns: 1fr;
   }
