@@ -1138,26 +1138,44 @@ textarea:focus {
 }
 
 .payment-amount-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
   margin-top: 18px;
-  padding: 18px;
+  padding: 20px 18px 18px;
   color: var(--ink);
+  text-align: center;
   background: #fff;
+  border: 1px solid rgba(240, 180, 41, 0.36);
   border-radius: 8px;
+  box-shadow: 0 16px 34px rgba(13, 32, 51, 0.12);
+  overflow: hidden;
+}
+
+.payment-amount-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--accent), #f7d86b);
 }
 
 .payment-amount-card small,
 .payment-amount-card span {
   display: block;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 850;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
 }
 
 .payment-amount-card strong {
   display: block;
-  margin: 4px 0;
   color: var(--brand-dark);
-  font-size: clamp(30px, 4vw, 44px);
+  font-size: clamp(34px, 4.2vw, 48px);
   line-height: 1;
 }
 

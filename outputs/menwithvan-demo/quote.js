@@ -1022,9 +1022,8 @@ function renderEmbeddedPayment(result) {
           <p>Your moving date and details are ready. Complete the secure payment below, or go back to adjust the booking.</p>
         </div>
         <div class="payment-amount-card">
-          <small>Due today</small>
+          <small>Amount due today</small>
           <strong>${pounds.format(summary.amountDue)}</strong>
-          <span>${escapeHtml(summary.paymentLabel)} to confirm the booking</span>
         </div>
         <div class="payment-summary-lines" aria-label="Payment summary">
           <p><span>Date:</span> ${escapeHtml(summary.moveDateLabel)} at ${escapeHtml(summary.moveTimeLabel)}</p>
