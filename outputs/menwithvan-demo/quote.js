@@ -90,8 +90,8 @@ function walkthroughUploadSection() {
       <section class="booking-section walkthrough-section" data-walkthrough-section>
         <div class="booking-section-head">
           <span>Pack and move walkthrough</span>
-          <h4>Upload a quick video or photos of what needs packing.</h4>
-          <p>This helps the team bring the right complimentary packing materials, so the job can be prepared properly before arrival.</p>
+          <h4>Upload now, or send it later.</h4>
+          <p>A walkthrough helps the team bring the right complimentary packing materials, but it is optional at booking. You can still continue without a file.</p>
         </div>
         <div class="walkthrough-upload-card">
           <label class="walkthrough-dropzone">
@@ -104,7 +104,7 @@ function walkthroughUploadSection() {
             <span>On mobile, this can open the camera for a quick walkthrough.</span>
             <input type="file" name="walkthrough-media" accept="video/*,image/*" capture="environment">
           </label>
-          <p class="walkthrough-upload-note">Optional: upload a walkthrough video, photos, PDF or documents now if you have them ready. If not, you can still book and send the walkthrough by WhatsApp after confirmation.</p>
+          <p class="walkthrough-upload-note">Optional: upload a walkthrough video, photos, PDF or documents now if you have them ready. If not, carry on with the booking and send it later by WhatsApp after confirmation.</p>
           <div class="walkthrough-file-list" data-walkthrough-file-list>No walkthrough files selected yet.</div>
         </div>
       </section>
@@ -123,11 +123,6 @@ function updateWalkthroughFileList(bookingPanel) {
     <strong>${files.length} file${files.length === 1 ? "" : "s"} selected</strong>
     <ul>${files.map((file) => `<li>${escapeHtml(file.name)}</li>`).join("")}</ul>
   `;
-}
-
-function walkthroughUploadError(bookingPanel) {
-  if (!lastQuotePayload?.packAndMove) return "";
-  return "";
 }
 
 function escapeHtml(value) {
@@ -1525,13 +1520,6 @@ if (quoteForm && quoteResult) {
       bookingPanel.querySelector("[data-time-field]")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-    const walkthroughError = walkthroughUploadError(bookingPanel);
-    if (walkthroughError) {
-      setBookingSubmitState(bookingPanel, walkthroughError, "warn");
-      bookingPanel.querySelector("[data-walkthrough-section]")?.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
-    }
-
     const payload = bookingSubmissionPayload(bookingPanel);
     const hasWalkthroughFiles = selectedWalkthroughFiles(bookingPanel).length > 0;
 

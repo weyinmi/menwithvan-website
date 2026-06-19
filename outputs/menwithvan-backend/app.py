@@ -1837,12 +1837,12 @@ def render_confirmation_email(row):
         walkthrough_text = "No walkthrough files uploaded yet."
         walkthrough_whatsapp_text = (
             "\nPack and move walkthrough:\n"
-            f"Please send us a walkthrough video by WhatsApp to {PACK_AND_MOVE_WHATSAPP_NUMBER} before the move. "
+            f"When you have it ready, please send us a walkthrough video by WhatsApp to {PACK_AND_MOVE_WHATSAPP_NUMBER}. "
             "This helps us bring the right complimentary packing materials and prepare the job properly.\n"
         )
         walkthrough_whatsapp_html = f"""
   <h2>Pack and move walkthrough</h2>
-  <p>Please send us a walkthrough video by WhatsApp to <a href="{html.escape(PACK_AND_MOVE_WHATSAPP_LINK)}">{html.escape(PACK_AND_MOVE_WHATSAPP_NUMBER)}</a> before the move. This helps us bring the right complimentary packing materials and prepare the job properly.</p>
+  <p>When you have it ready, please send us a walkthrough video by WhatsApp to <a href="{html.escape(PACK_AND_MOVE_WHATSAPP_LINK)}">{html.escape(PACK_AND_MOVE_WHATSAPP_NUMBER)}</a>. This helps us bring the right complimentary packing materials and prepare the job properly.</p>
 """
     packing_text = (
         "Included - we bring brand new complimentary packing materials such as wardrobe boxes, different size boxes, bubble wrap, tape and paper. We pack everything that needs packing, then move it. The materials are yours to keep, and packing time is included within the total booked hours."
